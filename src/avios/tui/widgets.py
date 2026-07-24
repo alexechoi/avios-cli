@@ -20,8 +20,8 @@ class BalanceDisplay(Static):
         text = Text()
         text.append("Avios  ", style="bold")
         text.append(f"{balance.balance:,}", style="bold cyan")
-        if balance.household_avios_balance is not None:
-            text.append(f"     Household  {balance.household_avios_balance:,}", style="dim")
+        if balance.household is not None:
+            text.append(f"     Household  {balance.household:,}", style="dim")
         self.last_text = text.plain
         self.update(text)
 

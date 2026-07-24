@@ -149,7 +149,9 @@ def _wait_for_auth(ctx: Any, page: Any, base_url: str, timeout_ms: int) -> bool:
 
 def _is_authenticated(ctx: Any, base_url: str) -> bool:
     try:
-        return bool(ctx.request.get(f"{base_url}{endpoints.AUTH_USER}").ok)
+        # Use the same endpoint `balance` reads, so a successful login guarantees
+        # the balance command will work.
+        return bool(ctx.request.get(f"{base_url}{endpoints.ACCOUNTS}").ok)
     except Exception:
         return False
 
@@ -257,7 +259,7 @@ def _cookies_authenticate(settings: Settings, cookies: list[dict[str, Any]]) -> 
                 "cookie": header,
             },
         ) as client:
-            return client.get(endpoints.AUTH_USER).status_code == 200
+            return client.get(endpoints.ACCOUNTS).status_code == 200
     except httpx.HTTPError:
         return False
 

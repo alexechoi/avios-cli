@@ -61,9 +61,6 @@ class AviosApp(App[None]):
     async def _load(self) -> None:
         try:
             balance = await asyncio.to_thread(self._client.get_balance)
-            transactions = await asyncio.to_thread(
-                self._client.get_transactions, TRANSACTIONS_TO_SHOW
-            )
         except (NotAuthenticated, SessionExpired) as exc:
             self._show_error(f"{exc}  —  run `avios login`")
             return
@@ -71,6 +68,15 @@ class AviosApp(App[None]):
             self._show_error(f"Request failed: {exc}")
             return
         self.query_one("#balance", BalanceDisplay).update_balance(balance)
+
+        # Transactions are experimental (manage-avios session); degrade gracefully
+        # so the balance still shows if they're unavailable.
+        try:
+            transactions = await asyncio.to_thread(
+                self._client.get_transactions, TRANSACTIONS_TO_SHOW
+            )
+        except (NotAuthenticated, SessionExpired, httpx.HTTPError):
+            transactions = []
         self._populate_transactions(transactions)
 
     def _show_error(self, message: str) -> None:

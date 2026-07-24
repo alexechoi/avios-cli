@@ -165,8 +165,10 @@ def balance(json_out: bool = JSON_OPTION) -> None:
 def _render_balance(result: Balance) -> None:
     table = Table(show_header=False, box=None)
     table.add_row("[bold]Avios[/]", f"[bold cyan]{result.balance:,}[/]")
-    if result.household_avios_balance is not None:
-        table.add_row("Household", f"{result.household_avios_balance:,}")
+    if result.individual is not None:
+        table.add_row("Individual", f"{result.individual:,}")
+    if result.household is not None:
+        table.add_row("Household", f"{result.household:,}")
     console.print(table)
 
 
@@ -175,7 +177,7 @@ def transactions(
     limit: int = typer.Option(20, help="Number of transactions to show."),
     json_out: bool = JSON_OPTION,
 ) -> None:
-    """List recent Avios transactions."""
+    """List recent Avios transactions (experimental; needs the manage-avios session)."""
     with _handle_errors():
         items = _client().get_transactions(limit=limit)
     records = [item.as_dict() for item in items]
@@ -187,7 +189,7 @@ def transactions(
 
 @app.command()
 def pending(json_out: bool = JSON_OPTION) -> None:
-    """List pending Avios transactions."""
+    """List pending Avios transactions (experimental; needs the manage-avios session)."""
     with _handle_errors():
         items = _client().get_pending_transactions()
     records = [item.as_dict() for item in items]
@@ -198,31 +200,40 @@ def pending(json_out: bool = JSON_OPTION) -> None:
 
 
 @app.command()
-def accounts(json_out: bool = JSON_OPTION) -> None:
-    """List linked loyalty accounts."""
-    with _handle_errors():
-        items = _client().get_accounts()
-    records = [item.as_dict() for item in items]
-    if json_out:
-        _print_json(records)
-        return
-    _render_records(records, "Accounts")
-
-
-@app.command()
 def overview() -> None:
-    """Show the dashboard overview (raw JSON; shape not yet finalised)."""
+    """Show the dashboard overview (experimental; needs the manage-avios session)."""
     with _handle_errors():
         result = _client().get_overview()
     _print_json(result.as_dict())
 
 
 @app.command()
-def whoami() -> None:
-    """Show your profile (raw JSON; shape not yet finalised)."""
+def whoami(json_out: bool = JSON_OPTION) -> None:
+    """Show your profile (name, tier, membership)."""
     with _handle_errors():
-        result = _client().get_profile()
-    _print_json(result.as_dict())
+        data = _client().get_profile().as_dict()
+    if json_out:
+        _print_json(data)
+        return
+    claims = data.get("tokenContent", {})
+
+    def claim(key: str) -> str:
+        return str(claims.get(f"https://avios.com/{key}", "") or "")
+
+    table = Table(show_header=False, box=None)
+    name = claims.get("name") or f"{claims.get('given_name', '')} {claims.get('family_name', '')}"
+    for label, value in (
+        ("Name", str(name).strip()),
+        ("Tier", claim("customer_tier_name")),
+        ("Membership", claim("membership_id")),
+        ("Email", str(claims.get("email", "") or "")),
+    ):
+        if value:
+            table.add_row(f"[bold]{label}[/]", value)
+    if table.row_count:
+        console.print(table)
+    else:
+        _print_json(data)
 
 
 @app.command()

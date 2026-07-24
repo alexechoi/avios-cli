@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class AviosModel(BaseModel):
@@ -25,10 +25,14 @@ class AviosModel(BaseModel):
 
 
 class Balance(AviosModel):
-    """Avios balance (from ``/en-GB/spend-avios/api/avios-balance``)."""
+    """Avios balance (from ``/shell/api/users/current/accounts``).
+
+    Shape: ``{"balance": N, "individual": N, "household": N}``.
+    """
 
     balance: int
-    household_avios_balance: int | None = Field(default=None, alias="householdAviosBalance")
+    individual: int | None = None
+    household: int | None = None
 
 
 class Transaction(AviosModel):
