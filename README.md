@@ -47,7 +47,7 @@ releases — see the roadmap below.
 ## Development
 
 ```bash
-uv sync --extra dev
+uv sync            # installs the project + the `dev` dependency-group
 uv run ruff check .
 uv run mypy src
 uv run pytest
