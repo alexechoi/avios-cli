@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AviosModel(BaseModel):
@@ -35,12 +35,24 @@ class Balance(AviosModel):
     household: int | None = None
 
 
-class Transaction(AviosModel):
-    """A single Avios statement entry.
+class NamedRef(AviosModel):
+    """A ``{value, id}`` reference (transaction type, partner, ...)."""
 
-    Concrete fields are pinned once live transaction payloads are observed; until
-    then every key is preserved via ``extra='allow'``.
-    """
+    value: str | None = None
+    id: str | None = None
+
+
+class Transaction(AviosModel):
+    """A single Avios statement entry (from the manage-avios transactions API)."""
+
+    identifier: str | None = None
+    date_processed: str | None = Field(default=None, alias="dateProcessed")
+    description: str | None = None
+    type: NamedRef | None = None
+    partner: NamedRef | None = None
+    amount: int | None = None
+    categories: list[str] = Field(default_factory=list)
+    record_index: int | None = Field(default=None, alias="recordIndex")
 
 
 class Account(AviosModel):

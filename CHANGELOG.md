@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-24
+
+### Added
+- **`transactions`, `pending` and `overview` now work.** The manage-avios API
+  only needed an `x-avios-opco` header (not a separate session, as previously
+  thought) — it's now sent automatically. `transactions` renders date /
+  description / Avios (coloured +/-) / type and respects `--limit`; the TUI shows
+  real transactions too.
+- Typed `Transaction` model (identifier, dateProcessed, description, type,
+  partner, amount, categories) and a `NamedRef` helper.
+- `AVIOS_OPCO` setting (default `BAEC` = British Airways Executive Club) for other
+  Avios programmes.
+
 ## [0.1.6] - 2026-07-24
 
 ### Fixed
@@ -107,7 +120,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/alexechoi/avios-cli/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/alexechoi/avios-cli/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/alexechoi/avios-cli/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/alexechoi/avios-cli/compare/v0.1.3...v0.1.4

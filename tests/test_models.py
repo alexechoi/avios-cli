@@ -29,6 +29,25 @@ def test_balance_extras_are_optional() -> None:
 def test_extra_fields_are_preserved() -> None:
     txn = Transaction.model_validate({"date": "2026-07-01", "avios": 500, "unknown": "x"})
     dumped = txn.as_dict()
-    assert dumped["date"] == "2026-07-01"
-    assert dumped["avios"] == 500
     assert dumped["unknown"] == "x"
+
+
+def test_transaction_parses_real_shape() -> None:
+    txn = Transaction.model_validate(
+        {
+            "identifier": "2139440378",
+            "dateProcessed": "2026-07-21T11:37:35.000Z",
+            "description": "UBER",
+            "type": {"value": "Collection", "id": "DV_COL"},
+            "partner": {"value": "UBER", "id": "UBR"},
+            "amount": 50,
+            "categories": ["collectingAvios"],
+            "recordIndex": 1,
+        }
+    )
+    assert txn.identifier == "2139440378"
+    assert txn.date_processed == "2026-07-21T11:37:35.000Z"
+    assert txn.type is not None and txn.type.value == "Collection"
+    assert txn.partner is not None and txn.partner.id == "UBR"
+    assert txn.amount == 50
+    assert txn.categories == ["collectingAvios"]

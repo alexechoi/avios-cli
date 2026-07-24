@@ -17,10 +17,14 @@ class FakeClient:
     def get_balance(self) -> Balance:
         return Balance(balance=100, individual=100, household=200)
 
-    def get_transactions(self, limit: int | None = None) -> list[Transaction]:
+    def get_transactions(self, limit: int = 50) -> list[Transaction]:
         return [
-            Transaction.model_validate({"date": "2026-07-01", "avios": 100}),
-            Transaction.model_validate({"date": "2026-06-01", "avios": 50}),
+            Transaction.model_validate(
+                {"dateProcessed": "2026-07-01T09:00:00Z", "description": "UBER", "amount": 100}
+            ),
+            Transaction.model_validate(
+                {"dateProcessed": "2026-06-01T09:00:00Z", "description": "Flight", "amount": -5000}
+            ),
         ]
 
 

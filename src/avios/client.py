@@ -47,11 +47,16 @@ class AviosClient:
     def get_overview(self) -> Overview:
         return Overview.model_validate(self.session.get_json(endpoints.OVERVIEW))
 
-    def get_transactions(self, limit: int | None = None) -> list[Transaction]:
-        payload = self.session.get_json(endpoints.TRANSACTIONS)
-        items = _extract_list(payload)
+    def get_transactions(self, limit: int = 50) -> list[Transaction]:
+        # `offset` is a server-side page hint; slice to `limit` for an exact count.
+        offset = limit if limit and limit > 0 else 1000
+        path = f"{endpoints.TRANSACTIONS}?startRecord=1&offset={offset}&status=completed"
+        payload = self.session.get_json(path)
+        items = (
+            payload.get("transactions", []) if isinstance(payload, dict) else _extract_list(payload)
+        )
         transactions = [Transaction.model_validate(item) for item in items]
-        return transactions[:limit] if limit is not None else transactions
+        return transactions[:limit] if limit and limit > 0 else transactions
 
     def get_pending_transactions(self) -> list[Transaction]:
         payload = self.session.get_json(endpoints.TRANSACTIONS_PENDING)

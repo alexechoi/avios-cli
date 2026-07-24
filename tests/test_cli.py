@@ -30,12 +30,26 @@ class FakeClient:
     def get_balance(self) -> Balance:
         return Balance(balance=100, individual=100, household=200)
 
-    def get_transactions(self, limit: int | None = None) -> list[Transaction]:
+    def get_transactions(self, limit: int = 50) -> list[Transaction]:
         items = [
-            Transaction.model_validate({"date": "2026-07-01", "avios": 100}),
-            Transaction.model_validate({"date": "2026-06-01", "avios": 50}),
+            Transaction.model_validate(
+                {
+                    "dateProcessed": "2026-07-01T09:00:00.000Z",
+                    "description": "UBER",
+                    "type": {"value": "Collection", "id": "DV_COL"},
+                    "amount": 100,
+                }
+            ),
+            Transaction.model_validate(
+                {
+                    "dateProcessed": "2026-06-01T09:00:00.000Z",
+                    "description": "Deliveroo UK",
+                    "type": {"value": "BA Avios eStore", "id": "BA_AV_ESTORE"},
+                    "amount": 50,
+                }
+            ),
         ]
-        return items[:limit] if limit is not None else items
+        return items[:limit]
 
     def get_pending_transactions(self) -> list[Transaction]:
         return []
@@ -100,7 +114,8 @@ def test_transactions_respects_limit(fake_client: None) -> None:
 def test_transactions_json(fake_client: None) -> None:
     result = runner.invoke(app, ["transactions", "--json"])
     assert result.exit_code == 0
-    assert '"avios"' in result.stdout
+    assert '"amount"' in result.stdout
+    assert '"dateProcessed"' in result.stdout
 
 
 def test_whoami(fake_client: None) -> None:
