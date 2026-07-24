@@ -24,23 +24,50 @@ uv sync
 uv run avios --help
 ```
 
+## Log in
+
+avios.com has no credential API — login is Auth0 Universal Login behind hCaptcha and
+SMS/passkey MFA — so `avios login` rides a real browser session (like `gh`/`aws`
+login). Install the login extra once:
+
+```bash
+uv sync --extra login          # or: pip install "avios-cli[login]"
+uv run playwright install chromium
+```
+
+Then either open a browser to log in, or import the cookie from a browser you're
+already logged into:
+
+```bash
+avios login                    # opens a browser; log in once, cookie is captured
+avios login --from-browser     # instead, read the avios.com cookie from Chrome
+```
+
+Your session cookie is stored at `~/.config/avios/state.json` (mode `600`). It
+expires after ~a day; just run `avios login` again. Run `avios logout` to remove it.
+
 ## Usage
 
 ```bash
-avios --version
-avios --help
+avios balance                  # your Avios balance
+avios transactions --limit 20  # recent transactions
+avios pending                  # pending Avios
+avios accounts                 # linked loyalty accounts
+avios overview                 # dashboard summary (raw JSON)
+avios whoami                   # your profile (raw JSON)
+avios raw /manage-avios/api/user/current   # hit any endpoint directly
 ```
 
-Account commands (`login`, `balance`, `transactions`, `tui`, ...) land in subsequent
-releases — see the roadmap below.
+Add `--json` to `balance`, `transactions`, `pending` or `accounts` for scriptable
+output. A full-screen `avios tui` dashboard is coming next — see the roadmap.
 
 ## Roadmap
 
 - [x] Project scaffolding, packaging and CI
-- [ ] Session + cookie storage layer
-- [ ] Typed API client (balance, transactions, accounts, profile)
-- [ ] Browser-assisted `avios login`
-- [ ] CLI commands
+- [x] Session + cookie storage layer
+- [x] Typed API client (balance, transactions, accounts, profile)
+- [x] Browser-assisted `avios login`
+- [x] CLI commands
 - [ ] Textual TUI dashboard
 - [ ] Reward-flight **availability** search _(coming soon — needs a British Airways capture)_
 
