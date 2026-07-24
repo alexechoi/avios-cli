@@ -84,17 +84,21 @@ expires after ~a day; just run `avios login` again. Run `avios logout` to remove
 ## Usage
 
 ```bash
-avios balance                  # your Avios balance
-avios transactions --limit 20  # recent transactions
-avios pending                  # pending Avios
-avios accounts                 # linked loyalty accounts
-avios overview                 # dashboard summary (raw JSON)
-avios whoami                   # your profile (raw JSON)
-avios raw /manage-avios/api/user/current   # hit any endpoint directly
+avios balance                  # total / individual / household Avios
+avios whoami                   # name, tier, membership, email
+avios raw /shell/api/users/current/accounts   # hit any endpoint directly
 ```
 
-Add `--json` to `balance`, `transactions`, `pending` or `accounts` for scriptable
-output.
+Add `--json` to `balance` or `whoami` for scriptable output.
+
+**Experimental** (need the `manage-avios` app session, which the cookie/SSO login
+can't yet establish — these currently return "session expired"):
+
+```bash
+avios transactions --limit 20
+avios pending
+avios overview
+```
 
 ## TUI
 

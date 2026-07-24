@@ -34,10 +34,10 @@ def _client(settings: Settings, routes: dict[str, Any]) -> AviosClient:
 
 
 def test_get_balance(settings: Settings, load_fixture: Callable[[str], Any]) -> None:
-    client = _client(settings, {endpoints.BALANCE: load_fixture("balance.json")})
+    client = _client(settings, {endpoints.ACCOUNTS: load_fixture("balance.json")})
     balance = client.get_balance()
     assert balance.balance == 75751
-    assert balance.household_avios_balance == 75752
+    assert balance.household == 112430
 
 
 def test_get_transactions_from_bare_list(
@@ -64,11 +64,11 @@ def test_get_transactions_from_wrapped_object(settings: Settings) -> None:
     assert txns[0].as_dict()["avios"] == 100
 
 
-def test_get_accounts(settings: Settings, load_fixture: Callable[[str], Any]) -> None:
-    client = _client(settings, {endpoints.ACCOUNTS: load_fixture("accounts.json")})
-    accounts = client.get_accounts()
-    assert len(accounts) == 1
-    assert accounts[0].as_dict()["programme"] == "British Airways Executive Club"
+def test_get_profile(settings: Settings) -> None:
+    payload = {"idToken": "jwt", "tokenContent": {"name": "Alex"}}
+    client = _client(settings, {endpoints.AUTH_USER: payload})
+    profile = client.get_profile()
+    assert profile.as_dict()["tokenContent"]["name"] == "Alex"
 
 
 def test_raw_normalises_leading_slash(settings: Settings) -> None:
@@ -77,7 +77,7 @@ def test_raw_normalises_leading_slash(settings: Settings) -> None:
 
 
 def test_expired_session_propagates(settings: Settings) -> None:
-    client = _client(settings, {endpoints.BALANCE: 302})
+    client = _client(settings, {endpoints.ACCOUNTS: 302})
     with pytest.raises(SessionExpired):
         client.get_balance()
 

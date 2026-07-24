@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from avios import endpoints
-from avios.models import Account, Balance, Overview, Profile, Transaction
+from avios.models import Balance, Overview, Profile, Transaction
 from avios.session import Session
 
 
@@ -36,17 +36,16 @@ class AviosClient:
         self.session = session or Session()
 
     def get_balance(self) -> Balance:
-        return Balance.model_validate(self.session.get_json(endpoints.BALANCE))
+        # /shell/api/users/current/accounts authenticates with the SSO session and
+        # returns {balance, individual, household}.
+        return Balance.model_validate(self.session.get_json(endpoints.ACCOUNTS))
 
     def get_profile(self) -> Profile:
-        return Profile.model_validate(self.session.get_json(endpoints.PROFILE))
+        # /auth-gateway/user returns the SSO user (idToken + tokenContent claims).
+        return Profile.model_validate(self.session.get_json(endpoints.AUTH_USER))
 
     def get_overview(self) -> Overview:
         return Overview.model_validate(self.session.get_json(endpoints.OVERVIEW))
-
-    def get_accounts(self) -> list[Account]:
-        payload = self.session.get_json(endpoints.ACCOUNTS)
-        return [Account.model_validate(item) for item in _extract_list(payload)]
 
     def get_transactions(self, limit: int | None = None) -> list[Transaction]:
         payload = self.session.get_json(endpoints.TRANSACTIONS)

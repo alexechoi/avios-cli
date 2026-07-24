@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-07-24
+
+### Fixed
+- **`balance` finally works after login.** It (and `whoami`) were querying the
+  `manage-avios`/`spend-avios` micro-app APIs, which need a separate per-app
+  session and returned 401 ("Session expired") even when you were logged in.
+  Probing a real session showed the balance is served by
+  `/shell/api/users/current/accounts` (`{balance, individual, household}`) and the
+  profile by `/auth-gateway/user` — both of which authenticate with the browser
+  session. `balance`/`whoami` now use those.
+
+### Changed
+- `balance` shows total / individual / household; `whoami` shows name, tier,
+  membership and email.
+- The TUI shows your balance even if transactions are unavailable.
+- `transactions`, `pending` and `overview` are marked **experimental** — they need
+  the `manage-avios` app session, which the cookie/SSO login can't yet establish.
+- Removed the `accounts` command (its endpoint is the balance source, now shown by
+  `balance`).
+
 ## [0.1.5] - 2026-07-24
 
 ### Fixed
@@ -87,7 +107,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/alexechoi/avios-cli/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/alexechoi/avios-cli/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/alexechoi/avios-cli/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/alexechoi/avios-cli/compare/v0.1.2...v0.1.3

@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from avios import __version__
 from avios.auth import ImportResult, LoginError
 from avios.cli import app
-from avios.models import Account, Balance, Overview, Profile, Transaction
+from avios.models import Balance, Overview, Profile, Transaction
 from avios.session import NotAuthenticated, SessionExpired
 
 runner = CliRunner()
@@ -28,7 +28,7 @@ class FakeClient:
         pass
 
     def get_balance(self) -> Balance:
-        return Balance(balance=100, household_avios_balance=200)
+        return Balance(balance=100, individual=100, household=200)
 
     def get_transactions(self, limit: int | None = None) -> list[Transaction]:
         items = [
@@ -40,14 +40,20 @@ class FakeClient:
     def get_pending_transactions(self) -> list[Transaction]:
         return []
 
-    def get_accounts(self) -> list[Account]:
-        return [Account.model_validate({"programme": "BAEC", "balance": 100})]
-
     def get_overview(self) -> Overview:
         return Overview.model_validate({"tier": "Blue"})
 
     def get_profile(self) -> Profile:
-        return Profile.model_validate({"firstName": "Alex"})
+        return Profile.model_validate(
+            {
+                "idToken": "jwt",
+                "tokenContent": {
+                    "name": "Alex Choi",
+                    "https://avios.com/customer_tier_name": "Gold",
+                    "https://avios.com/membership_id": "BA123",
+                },
+            }
+        )
 
     def raw(self, path: str) -> dict[str, str]:
         return {"path": path}
@@ -81,7 +87,7 @@ def test_balance_json(fake_client: None) -> None:
     result = runner.invoke(app, ["balance", "--json"])
     assert result.exit_code == 0
     assert '"balance"' in result.stdout
-    assert '"householdAviosBalance"' in result.stdout
+    assert '"household"' in result.stdout
 
 
 def test_transactions_respects_limit(fake_client: None) -> None:
@@ -97,10 +103,12 @@ def test_transactions_json(fake_client: None) -> None:
     assert '"avios"' in result.stdout
 
 
-def test_accounts(fake_client: None) -> None:
-    result = runner.invoke(app, ["accounts"])
+def test_whoami(fake_client: None) -> None:
+    result = runner.invoke(app, ["whoami"])
     assert result.exit_code == 0
-    assert "BAEC" in result.stdout
+    out = " ".join(result.stdout.split())
+    assert "Alex Choi" in out
+    assert "Gold" in out
 
 
 def test_raw(fake_client: None) -> None:

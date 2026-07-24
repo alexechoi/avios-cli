@@ -3,4 +3,4 @@
 View your Avios balance, transactions and account details from the terminal.
 """
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"

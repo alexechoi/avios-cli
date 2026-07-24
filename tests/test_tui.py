@@ -15,7 +15,7 @@ from avios.tui.widgets import BalanceDisplay
 
 class FakeClient:
     def get_balance(self) -> Balance:
-        return Balance(balance=100, household_avios_balance=200)
+        return Balance(balance=100, individual=100, household=200)
 
     def get_transactions(self, limit: int | None = None) -> list[Transaction]:
         return [
