@@ -12,11 +12,12 @@ import asyncio
 import httpx
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import DataTable, Footer, Header
+from textual.widgets import DataTable, Footer, Header, Static
 
 from avios.client import AviosClient
 from avios.models import Transaction
 from avios.session import NotAuthenticated, Session, SessionExpired
+from avios.tui.art import banner_text
 from avios.tui.widgets import BalanceDisplay
 
 TRANSACTIONS_TO_SHOW = 50
@@ -40,6 +41,7 @@ class AviosApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        yield Static(banner_text(), id="banner")
         yield BalanceDisplay("Loading…", id="balance")
         yield DataTable(id="transactions", zebra_stripes=True, cursor_type="row")
         yield Footer()

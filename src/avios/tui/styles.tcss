@@ -2,9 +2,16 @@ Screen {
     background: $surface;
 }
 
+#banner {
+    height: auto;
+    padding: 1 0 0 0;
+    content-align: center middle;
+    text-align: center;
+}
+
 #balance {
     height: 3;
-    padding: 1 2;
+    padding: 0 2;
     content-align: left middle;
     border-bottom: solid $primary;
 }
