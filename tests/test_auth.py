@@ -14,8 +14,9 @@ import types
 import pytest
 
 from avios.auth import (
+    ImportResult,
     LoginError,
-    _default_loader,
+    _browser_fn,
     _only_avios,
     _open_login_context,
     _to_cookie_dicts,
@@ -52,52 +53,49 @@ def test_only_avios_filters_foreign_domains() -> None:
     assert _only_avios(cookies) == [cookies[0]]
 
 
-def test_import_from_browser_saves_only_avios(settings: Settings) -> None:
+def test_import_from_browser_uses_authenticated_cookies(settings: Settings) -> None:
     session = _session(settings)
-    count = import_from_browser(
+    result = import_from_browser(
         session,
         loader=lambda: [
             FakeCookie("appSession", "abc", "www.avios.com"),
             FakeCookie("_ga", "junk", ".google.com"),
         ],
+        authenticator=lambda cookies: True,
     )
-    assert count == 1
-    assert session.is_authenticated()
+    assert isinstance(result, ImportResult)
+    assert result.count == 1  # only the avios cookie
+    assert result.authenticated is True
     assert session.load_cookies() == [
         {"name": "appSession", "value": "abc", "domain": "www.avios.com"}
     ]
 
 
+def test_import_from_browser_reports_unauthenticated(settings: Settings) -> None:
+    session = _session(settings)
+    result = import_from_browser(
+        session,
+        loader=lambda: [FakeCookie("appSession", "stale", "www.avios.com")],
+        authenticator=lambda cookies: False,  # cookies exist but don't authenticate
+    )
+    assert result.count == 1
+    assert result.authenticated is False  # saved as best-effort, flagged as not working
+
+
 def test_import_from_browser_no_cookies_raises(settings: Settings) -> None:
     with pytest.raises(LoginError, match="No avios.com cookies"):
-        import_from_browser(_session(settings), loader=lambda: [FakeCookie("_ga", "j", ".x.com")])
+        import_from_browser(
+            _session(settings),
+            loader=lambda: [FakeCookie("_ga", "j", ".x.com")],
+            authenticator=lambda cookies: True,
+        )
 
 
-def _fake_bc3(monkeypatch: pytest.MonkeyPatch, **funcs: object) -> None:
-    module = types.ModuleType("browser_cookie3")
-    for name, fn in funcs.items():
-        setattr(module, name, fn)
-    monkeypatch.setitem(sys.modules, "browser_cookie3", module)
-
-
-def test_default_loader_passes_domain(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, str] = {}
-
-    def chrome(**kwargs: str) -> list[FakeCookie]:
-        seen.update(kwargs)
-        return [FakeCookie("appSession", "x", "www.avios.com")]
-
-    _fake_bc3(monkeypatch, chrome=chrome)
-    loader = _default_loader("chrome")
-    cookies = list(loader())
-    assert seen["domain_name"] == "avios.com"
-    assert cookies[0].name == "appSession"
-
-
-def test_default_loader_unknown_browser(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_bc3(monkeypatch, chrome=lambda **k: [])
+def test_browser_fn_unknown_browser() -> None:
+    bc3 = types.ModuleType("browser_cookie3")
+    bc3.chrome = lambda **k: []  # type: ignore[attr-defined]
     with pytest.raises(LoginError, match="Unknown browser"):
-        _default_loader("nope")
+        _browser_fn(bc3, "nope")
 
 
 def test_login_via_browser_without_playwright(

@@ -98,6 +98,9 @@ def login(
         False, "--from-browser", help="Import the cookie from a running browser (no popup)."
     ),
     browser: str = typer.Option("chrome", help="Browser to import from (with --from-browser)."),
+    profile: str | None = typer.Option(
+        None, help="Browser profile name for --from-browser (e.g. 'Default', 'Profile 1')."
+    ),
     headless: bool = typer.Option(
         False, help="Run the login browser headless (only works without captcha/MFA)."
     ),
@@ -106,7 +109,19 @@ def login(
     session = Session()
     try:
         if from_browser:
-            count = import_from_browser(session, browser)
+            result = import_from_browser(session, browser, profile=profile)
+            where = f" from {browser} profile '{result.profile}'" if result.profile else ""
+            if not result.authenticated:
+                console.print(
+                    f"[yellow]Imported {result.count} cookie(s){where}, but they're not a "
+                    "logged-in avios session.[/]"
+                )
+                console.print(
+                    "Log into avios.com in that profile, pick another with "
+                    "[bold]--profile[/], or use [bold]avios login[/] (browser)."
+                )
+                raise typer.Exit(2)
+            console.print(f"[green]Logged in{where}.[/] Saved {result.count} cookie(s).")
         else:
             console.print(
                 "Opening a browser — log in normally (password, captcha, SMS code). "
@@ -114,11 +129,11 @@ def login(
                 "captures your session automatically."
             )
             count = login_via_browser(session, headless=headless)
+            console.print(f"[green]Logged in.[/] Saved {count} avios cookie(s).")
     except LoginError as exc:
         console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(1) from exc
 
-    console.print(f"[green]Logged in.[/] Saved {count} avios cookie(s).")
     try:
         balance = AviosClient(session).get_balance()
         console.print(

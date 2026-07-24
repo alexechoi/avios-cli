@@ -13,7 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from avios import __version__
-from avios.auth import LoginError
+from avios.auth import ImportResult, LoginError
 from avios.cli import app
 from avios.models import Account, Balance, Overview, Profile, Transaction
 from avios.session import NotAuthenticated, SessionExpired
@@ -134,16 +134,31 @@ def test_session_expired(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # -- login / logout ----------------------------------------------------------
 def test_login_from_browser(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("avios.cli.import_from_browser", lambda session, browser: 2)
+    monkeypatch.setattr(
+        "avios.cli.import_from_browser",
+        lambda session, browser, profile=None: ImportResult(2, "Default", True),
+    )
     monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
     result = runner.invoke(app, ["login", "--from-browser"])
     assert result.exit_code == 0
     assert "Logged in" in result.stdout
+    assert "Default" in result.stdout
     assert "Balance" in result.stdout
 
 
+def test_login_from_browser_unauthenticated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "avios.cli.import_from_browser",
+        lambda session, browser, profile=None: ImportResult(20, "Default", False),
+    )
+    result = runner.invoke(app, ["login", "--from-browser"])
+    assert result.exit_code == 2
+    normalized = " ".join(result.stdout.split())  # Rich wraps lines
+    assert "not a logged-in avios session" in normalized
+
+
 def test_login_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(session: Any, browser: str) -> int:
+    def boom(session: Any, browser: str, profile: str | None = None) -> ImportResult:
         raise LoginError("nope")
 
     monkeypatch.setattr("avios.cli.import_from_browser", boom)

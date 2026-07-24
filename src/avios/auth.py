@@ -17,20 +17,60 @@ Two strategies, both requiring the optional ``login`` extra
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
+import httpx
+
 from avios import endpoints
-from avios.session import Session
+from avios.config import Settings
+from avios.session import Session, cookie_header_from
 
 DASHBOARD_PATH = "/manage-avios/dashboard"
 LOGIN_TIMEOUT_MS = 300_000  # 5 minutes to complete password + captcha + MFA
 LOGIN_POLL_MS = 2_000  # how often to check whether the session is authenticated
 SUPPORTED_BROWSERS = ("chrome", "firefox", "edge", "brave", "safari", "chromium")
 
+# Chromium-family user-data roots per browser (relative to home), used to discover
+# per-profile cookie databases (Default, "Profile 1", ...).
+_CHROMIUM_ROOTS = {
+    "chrome": [
+        "Library/Application Support/Google/Chrome",
+        ".config/google-chrome",
+        "AppData/Local/Google/Chrome/User Data",
+    ],
+    "brave": [
+        "Library/Application Support/BraveSoftware/Brave-Browser",
+        ".config/BraveSoftware/Brave-Browser",
+        "AppData/Local/BraveSoftware/Brave-Browser/User Data",
+    ],
+    "edge": [
+        "Library/Application Support/Microsoft Edge",
+        ".config/microsoft-edge",
+        "AppData/Local/Microsoft/Edge/User Data",
+    ],
+    "chromium": [
+        "Library/Application Support/Chromium",
+        ".config/chromium",
+        "AppData/Local/Chromium/User Data",
+    ],
+}
+
 
 class LoginError(RuntimeError):
     """Login could not be completed."""
+
+
+@dataclass
+class ImportResult:
+    """Outcome of importing cookies from a browser."""
+
+    count: int
+    profile: str | None
+    authenticated: bool
 
 
 class _RawCookie(Protocol):
@@ -143,8 +183,7 @@ def _open_login_context(pw: Any, *, headless: bool, user_data_dir: str) -> Any:
     )
 
 
-def _default_loader(browser: str) -> Callable[[], Iterable[_RawCookie]]:
-    """Return a callable that reads avios.com cookies from ``browser``."""
+def _bc3() -> Any:
     try:
         import browser_cookie3 as bc3
     except ImportError as exc:
@@ -152,30 +191,118 @@ def _default_loader(browser: str) -> Callable[[], Iterable[_RawCookie]]:
             "browser-cookie3 isn't installed. Run with the 'login' extra:\n"
             "  uvx --from 'avios-cli[login]' avios login --from-browser"
         ) from exc
+    return bc3
+
+
+def _browser_fn(bc3: Any, browser: str) -> Any:
     fn = getattr(bc3, browser, None)
     if fn is None:
         raise LoginError(
             f"Unknown browser '{browser}'. Choose from: {', '.join(SUPPORTED_BROWSERS)}"
         )
-    return lambda: fn(domain_name="avios.com")
+    return fn
+
+
+def _profile_cookie_files(browser: str, profile: str | None) -> list[tuple[str, Path]]:
+    """Discover (profile_name, Cookies-db) pairs for a chromium-family browser."""
+    found: list[tuple[str, Path]] = []
+    for rel in _CHROMIUM_ROOTS.get(browser, []):
+        root = Path.home() / rel
+        if not root.exists():
+            continue
+        for prof in sorted(p for p in root.iterdir() if p.is_dir()):
+            if profile and prof.name != profile:
+                continue
+            for db in (prof / "Cookies", prof / "Network" / "Cookies"):
+                if db.exists():
+                    found.append((prof.name, db))
+                    break
+    return found
+
+
+def _candidate_cookie_sets(
+    browser: str, profile: str | None
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Return [(profile_name, avios_cookies)] to try, most specific first."""
+    bc3 = _bc3()
+    fn = _browser_fn(bc3, browser)
+    candidates: list[tuple[str, list[dict[str, Any]]]] = []
+    for name, db in _profile_cookie_files(browser, profile):
+        try:
+            raw = fn(domain_name="avios.com", cookie_file=str(db))
+        except Exception:
+            continue
+        candidates.append((name, _only_avios(_to_cookie_dicts(raw))))
+    if not profile:
+        # Fallback to browser_cookie3's own default lookup.
+        with contextlib.suppress(Exception):
+            raw = fn(domain_name="avios.com")
+            candidates.append(("default", _only_avios(_to_cookie_dicts(raw))))
+    return candidates
+
+
+def _cookies_authenticate(settings: Settings, cookies: list[dict[str, Any]]) -> bool:
+    """True if these cookies yield a 200 from the auth endpoint."""
+    header = cookie_header_from(cookies)
+    if not header:
+        return False
+    try:
+        with httpx.Client(
+            base_url=settings.base_url,
+            timeout=15.0,
+            follow_redirects=False,
+            headers={
+                "accept": "application/json",
+                "user-agent": settings.user_agent,
+                "cookie": header,
+            },
+        ) as client:
+            return client.get(endpoints.AUTH_USER).status_code == 200
+    except httpx.HTTPError:
+        return False
 
 
 def import_from_browser(
     session: Session | None = None,
     browser: str = "chrome",
     *,
+    profile: str | None = None,
     loader: Callable[[], Iterable[_RawCookie]] | None = None,
-) -> int:
-    """Import the avios.com session cookie from a running browser.
+    authenticator: Callable[[list[dict[str, Any]]], bool] | None = None,
+) -> ImportResult:
+    """Import the avios.com session cookie from a browser profile.
 
-    Returns the number of avios.com cookies imported.
+    Scans the browser's profiles, prefers the one whose cookies actually
+    authenticate, and saves them. ``loader``/``authenticator`` are test seams.
     """
     session = session or Session()
-    load = loader or _default_loader(browser)
-    cookies = _only_avios(_to_cookie_dicts(load()))
-    if not cookies:
+    authenticate = authenticator or (lambda c: _cookies_authenticate(session.settings, c))
+
+    if loader is not None:
+        candidates: list[tuple[str, list[dict[str, Any]]]] = [
+            ("browser", _only_avios(_to_cookie_dicts(loader())))
+        ]
+    else:
+        candidates = _candidate_cookie_sets(browser, profile)
+
+    working: tuple[str, list[dict[str, Any]]] | None = None
+    fallback: tuple[str, list[dict[str, Any]]] | None = None
+    for name, cookies in candidates:
+        if not cookies:
+            continue
+        if fallback is None:
+            fallback = (name, cookies)
+        if authenticate(cookies):
+            working = (name, cookies)
+            break
+
+    chosen = working or fallback
+    if chosen is None:
+        where = f"profile '{profile}'" if profile else browser
         raise LoginError(
-            f"No avios.com cookies found in {browser}. Log into avios.com there first."
+            f"No avios.com cookies found in {where}. Log into avios.com in that "
+            "browser first (and check the profile with --profile)."
         )
+    name, cookies = chosen
     session.save_cookies(cookies)
-    return len(cookies)
+    return ImportResult(count=len(cookies), profile=name, authenticated=working is not None)

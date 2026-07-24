@@ -62,6 +62,14 @@ into avios.com with:
 uvx --from 'avios-cli[login]' avios login --from-browser
 ```
 
+This scans **all your Chrome profiles** and uses whichever one is actually logged
+into avios.com (it tells you which). If you have several profiles, you can target
+one directly:
+
+```bash
+uvx --from 'avios-cli[login]' avios login --from-browser --profile "Profile 1"
+```
+
 Plain `uvx avios-cli login` won't work — the isolated environment doesn't include
 the `login` extra.
 

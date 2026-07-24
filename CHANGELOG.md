@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-24
+
+### Fixed
+- **`--from-browser` only read Chrome's `Default` profile.** If you were logged
+  into avios.com in another profile (Profile 1, a work profile, ...), it grabbed
+  the wrong profile's cookies and every call failed with "Session expired". It now
+  **scans all Chrome profiles, verifies which one actually authenticates**
+  (against `/auth-gateway/user`), and uses that — and reports which profile it used.
+
+### Added
+- `avios login --from-browser --profile "Profile 1"` to target a specific browser
+  profile, and a clear warning when the imported cookies aren't a logged-in session.
+
 ## [0.1.4] - 2026-07-24
 
 ### Fixed
@@ -74,7 +87,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/alexechoi/avios-cli/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/alexechoi/avios-cli/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/alexechoi/avios-cli/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alexechoi/avios-cli/compare/v0.1.1...v0.1.2
