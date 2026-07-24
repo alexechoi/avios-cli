@@ -93,6 +93,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+login = [
+    { name = "browser-cookie3" },
+    { name = "playwright" },
+]
+
+[package.dev-dependencies]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
@@ -102,31 +108,31 @@ dev = [
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
-login = [
-    { name = "browser-cookie3" },
-    { name = "playwright" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "browser-cookie3", marker = "extra == 'login'", specifier = ">=0.19" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "playwright", marker = "extra == 'login'", specifier = ">=1.44" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "rich", specifier = ">=13.7" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "textual", specifier = ">=0.80" },
     { name = "typer", specifier = ">=0.12" },
-    { name = "types-pyyaml", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev", "login"]
+provides-extras = ["login"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.10" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "respx", specifier = ">=0.21" },
+    { name = "ruff", specifier = ">=0.6" },
+    { name = "types-pyyaml" },
+]
 
 [[package]]
 name = "backports-asyncio-runner"
