@@ -22,8 +22,15 @@ Early alpha, built in the open. See the [roadmap](#roadmap).
 
 ## Install
 
-Requires Python 3.10+. Until the first PyPI release, install from source with
-[`uv`](https://docs.astral.sh/uv/):
+Requires Python 3.10+.
+
+```bash
+uvx avios-cli --help     # try it without installing (recommended)
+# or install it:
+pip install avios-cli
+```
+
+Or from source, for development:
 
 ```bash
 git clone https://github.com/alexechoi/avios-cli
