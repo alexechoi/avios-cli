@@ -25,9 +25,10 @@ Early alpha, built in the open. See the [roadmap](#roadmap).
 Requires Python 3.10+.
 
 ```bash
-uvx avios-cli --help     # try it without installing (recommended)
-# or install it:
+uvx avios-cli --help     # run without installing
+# or install it, then use the `avios` command:
 pip install avios-cli
+avios --help
 ```
 
 Or from source, for development:

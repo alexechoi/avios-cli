@@ -58,6 +58,8 @@ dev = [
 
 [project.scripts]
 avios = "avios.cli:app"
+# Alias so `uvx avios-cli` (matching the package name) works too.
+avios-cli = "avios.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/alexechoi/avios-cli"
