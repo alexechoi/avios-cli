@@ -78,6 +78,10 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W", "C4", "SIM"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Typer's API intentionally uses these calls as parameter defaults.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
