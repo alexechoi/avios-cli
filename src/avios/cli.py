@@ -219,5 +219,13 @@ def raw(path: str) -> None:
         _print_json(data)
 
 
+@app.command()
+def tui() -> None:
+    """Launch the full-screen dashboard."""
+    from avios.tui.app import run
+
+    run()
+
+
 if __name__ == "__main__":
     app()

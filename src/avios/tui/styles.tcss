@@ -1,0 +1,14 @@
+Screen {
+    background: $surface;
+}
+
+#balance {
+    height: 3;
+    padding: 1 2;
+    content-align: left middle;
+    border-bottom: solid $primary;
+}
+
+#transactions {
+    height: 1fr;
+}
