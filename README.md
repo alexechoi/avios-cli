@@ -59,7 +59,16 @@ avios raw /manage-avios/api/user/current   # hit any endpoint directly
 ```
 
 Add `--json` to `balance`, `transactions`, `pending` or `accounts` for scriptable
-output. A full-screen `avios tui` dashboard is coming next — see the roadmap.
+output.
+
+## TUI
+
+```bash
+avios tui
+```
+
+A full-screen dashboard: your balance in the header and a scrollable transactions
+table. Press `r` to refresh, `q` to quit.
 
 ## Roadmap
 
@@ -68,7 +77,7 @@ output. A full-screen `avios tui` dashboard is coming next — see the roadmap.
 - [x] Typed API client (balance, transactions, accounts, profile)
 - [x] Browser-assisted `avios login`
 - [x] CLI commands
-- [ ] Textual TUI dashboard
+- [x] Textual TUI dashboard
 - [ ] Reward-flight **availability** search _(coming soon — needs a British Airways capture)_
 
 ## Development
