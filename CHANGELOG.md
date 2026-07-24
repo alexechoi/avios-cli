@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-24
+
+### Fixed
+- Added an `avios-cli` console-script alias so `uvx avios-cli` works (matching the
+  package name). The primary command is still `avios`.
+
+## [0.1.0] - 2026-07-24
+
 ### Added
 - Project scaffolding: src-layout `avios` package, hatchling packaging, `avios`
   console script, ruff + mypy + pytest tooling, GitHub Actions CI (Python
@@ -32,4 +40,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/commits/main
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/alexechoi/avios-cli/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/alexechoi/avios-cli/releases/tag/v0.1.0
