@@ -65,6 +65,11 @@ uvx --from 'avios-cli[login]' avios login --from-browser
 Plain `uvx avios-cli login` won't work — the isolated environment doesn't include
 the `login` extra.
 
+**Stuck in an endless captcha loop?** That's bot detection on the automated
+browser. Use `--from-browser` instead: log into avios.com in your normal Chrome
+(you'll get one normal captcha), then run
+`uvx --from 'avios-cli[login]' avios login --from-browser`.
+
 Your session cookie is stored at `~/.config/avios/state.json` (mode `600`). It
 expires after ~a day; just run `avios login` again. Run `avios logout` to remove it.
 

@@ -1,8 +1,8 @@
 """Tests for the login helpers.
 
-The Playwright browser flow can't be automated (Auth0 + hCaptcha + MFA need a
-human), so we test the cookie-conversion/import helpers and the missing-dependency
-paths. ``browser_cookie3`` is faked via ``sys.modules`` so tests don't depend on
+The interactive browser flow can't be automated (Auth0 + hCaptcha + MFA need a
+human), so we inject a fake Playwright to exercise the poll-until-authenticated
+logic, and fake ``browser_cookie3`` via ``sys.modules`` so tests don't depend on
 the optional ``login`` extra or a real browser profile.
 """
 
@@ -17,6 +17,7 @@ from avios.auth import (
     LoginError,
     _default_loader,
     _only_avios,
+    _open_login_context,
     _to_cookie_dicts,
     import_from_browser,
     login_via_browser,
@@ -108,7 +109,7 @@ def test_login_via_browser_without_playwright(
         login_via_browser(_session(settings))
 
 
-# --- fake Playwright, to exercise the poll-until-authenticated flow --------------
+# --- fake Playwright (persistent context) to exercise the login flow ------------
 class _FakeResponse:
     def __init__(self, ok: bool) -> None:
         self.ok = ok
@@ -138,6 +139,7 @@ class _FakeContext:
     def __init__(self, ok_after: int, cookies: list[dict[str, str]]) -> None:
         self.request = _FakeRequest(ok_after)
         self._cookies = cookies
+        self.closed = False
 
     def new_page(self) -> _FakePage:
         return _FakePage()
@@ -145,39 +147,34 @@ class _FakeContext:
     def cookies(self) -> list[dict[str, str]]:
         return self._cookies
 
-
-class _FakeBrowser:
-    def __init__(self, ctx: _FakeContext) -> None:
-        self._ctx = ctx
-        self.closed = False
-
-    def new_context(self, **kwargs: object) -> _FakeContext:
-        return self._ctx
-
     def close(self) -> None:
         self.closed = True
 
 
-class _FakePlaywright:
-    def __init__(self, browser: _FakeBrowser) -> None:
-        self.chromium = _FakeChromium(browser)
-
-
 class _FakeChromium:
-    def __init__(self, browser: _FakeBrowser) -> None:
-        self._browser = browser
-        self.launches: list[str | None] = []
+    def __init__(self, ctx: _FakeContext, fail_channel: str | None = None) -> None:
+        self._ctx = ctx
+        self._fail_channel = fail_channel
+        self.channels: list[str | None] = []
 
-    def launch(self, **kwargs: object) -> _FakeBrowser:
-        self.launches.append(kwargs.get("channel"))  # type: ignore[arg-type]
-        return self._browser
+    def launch_persistent_context(self, user_data_dir: str, **kwargs: object) -> _FakeContext:
+        channel = kwargs.get("channel")
+        self.channels.append(channel)  # type: ignore[arg-type]
+        if channel == self._fail_channel:
+            raise RuntimeError("channel unavailable")
+        return self._ctx
+
+
+class _FakePlaywright:
+    def __init__(self, ctx: _FakeContext, fail_channel: str | None = None) -> None:
+        self.chromium = _FakeChromium(ctx, fail_channel)
 
 
 class _FakeFactory:
-    """Callable that returns a context manager yielding a fake Playwright."""
+    """Callable returning a context manager that yields the fake Playwright."""
 
-    def __init__(self, browser: _FakeBrowser) -> None:
-        self._pw = _FakePlaywright(browser)
+    def __init__(self, ctx: _FakeContext, fail_channel: str | None = None) -> None:
+        self._pw = _FakePlaywright(ctx, fail_channel)
 
     def __call__(self) -> _FakeFactory:
         return self
@@ -195,14 +192,13 @@ def test_login_captures_only_after_authenticated(settings: Settings) -> None:
         {"name": "_ga", "value": "junk", "domain": ".google.com"},
     ]
     ctx = _FakeContext(ok_after=3, cookies=cookies)
-    browser = _FakeBrowser(ctx)
     session = _session(settings)
 
-    count = login_via_browser(session, timeout_ms=100_000, playwright_factory=_FakeFactory(browser))
+    count = login_via_browser(session, timeout_ms=100_000, playwright_factory=_FakeFactory(ctx))
 
     assert count == 1  # only the avios cookie
     assert session.load_cookies() == cookies
-    assert browser.closed
+    assert ctx.closed
     assert ctx.request.calls >= 3  # polled until authenticated, not immediately
 
 
@@ -210,34 +206,18 @@ def test_login_times_out_without_saving(settings: Settings) -> None:
     ctx = _FakeContext(
         ok_after=999, cookies=[{"name": "appSession", "value": "x", "domain": "www.avios.com"}]
     )
-    browser = _FakeBrowser(ctx)
     session = _session(settings)
 
     with pytest.raises(LoginError, match="Timed out"):
-        login_via_browser(session, timeout_ms=6_000, playwright_factory=_FakeFactory(browser))
+        login_via_browser(session, timeout_ms=6_000, playwright_factory=_FakeFactory(ctx))
 
     assert session.is_authenticated() is False  # nothing saved on timeout
-    assert browser.closed
+    assert ctx.closed
 
 
-def test_launch_browser_prefers_chrome_then_falls_back() -> None:
-    from avios.auth import _launch_browser
-
-    class Chromium:
-        def __init__(self) -> None:
-            self.channels: list[str | None] = []
-
-        def launch(self, **kwargs: object) -> str:
-            channel = kwargs.get("channel")
-            self.channels.append(channel)  # type: ignore[arg-type]
-            if channel == "chrome":
-                raise RuntimeError("no system chrome")
-            return "browser"
-
-    class PW:
-        def __init__(self) -> None:
-            self.chromium = Chromium()
-
-    pw = PW()
-    assert _launch_browser(pw, headless=True) == "browser"
-    assert pw.chromium.channels == ["chrome", None]
+def test_open_login_context_prefers_chrome_then_falls_back(tmp_path: object) -> None:
+    ctx = _FakeContext(ok_after=1, cookies=[])
+    pw = _FakePlaywright(ctx, fail_channel="chrome")
+    result = _open_login_context(pw, headless=True, user_data_dir=str(tmp_path))
+    assert result is ctx
+    assert pw.chromium.channels == ["chrome", None]  # tried Chrome, fell back to Chromium

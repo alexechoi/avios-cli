@@ -63,15 +63,15 @@ def login_via_browser(
     session = session or Session()
     factory = playwright_factory or _import_sync_playwright()
     base_url = session.settings.base_url
+    profile_dir = str(session.settings.config_dir / "chrome-profile")
 
     with factory() as pw:
-        browser = _launch_browser(pw, headless=headless)
-        ctx = browser.new_context(user_agent=session.settings.user_agent)
+        ctx = _open_login_context(pw, headless=headless, user_data_dir=profile_dir)
         page = ctx.new_page()
         page.goto(f"{base_url}{DASHBOARD_PATH}")
         authed = _wait_for_auth(ctx, page, base_url, timeout_ms)
         cookies = list(ctx.cookies())
-        browser.close()
+        ctx.close()
 
     if not authed:
         raise LoginError("Timed out waiting for login. Run `avios login` again.")
@@ -114,11 +114,27 @@ def _is_authenticated(ctx: Any, base_url: str) -> bool:
         return False
 
 
-def _launch_browser(pw: Any, *, headless: bool) -> Any:
-    """Launch the user's system Chrome if available, else bundled Chromium."""
-    for kwargs in ({"channel": "chrome"}, {}):
+def _open_login_context(pw: Any, *, headless: bool, user_data_dir: str) -> Any:
+    """Open a browser context for login, tuned to avoid the hCaptcha bot loop.
+
+    hCaptcha/Akamai serve endless challenges to obviously-automated browsers, so:
+    - prefer the user's real Chrome (``channel="chrome"``) over bundled Chromium;
+    - disable the automation fingerprint (``navigator.webdriver`` /
+      ``--enable-automation``);
+    - use a **persistent profile** so cookies and captcha reputation carry over
+      between attempts (a brand-new, empty profile looks high-risk).
+    """
+    args = ["--disable-blink-features=AutomationControlled"]
+    ignore_default_args = ["--enable-automation"]
+    for extra in ({"channel": "chrome"}, {}):
         try:
-            return pw.chromium.launch(headless=headless, **kwargs)
+            return pw.chromium.launch_persistent_context(
+                user_data_dir,
+                headless=headless,
+                args=args,
+                ignore_default_args=ignore_default_args,
+                **extra,
+            )
         except Exception:
             continue
     raise LoginError(
