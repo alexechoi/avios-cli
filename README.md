@@ -43,22 +43,27 @@ uv run avios --help
 ## Log in
 
 avios.com has no credential API — login is Auth0 Universal Login behind hCaptcha and
-SMS/passkey MFA — so `avios login` rides a real browser session (like `gh`/`aws`
-login). Login needs the **`login` extra**, so run it with `avios-cli[login]`:
+SMS/passkey MFA — so `avios login` opens a real browser, **waits while you finish
+logging in** (password, captcha, SMS code), and captures the session once you land
+on the dashboard. It needs the **`login` extra**:
 
 ```bash
-# open a browser and log in once (first run also downloads Chromium):
-uvx --from 'avios-cli[login]' playwright install chromium
 uvx --from 'avios-cli[login]' avios login
+```
 
-# ...or skip the browser download and import the cookie from Chrome you're
-# already logged into avios.com with:
+It launches your installed **Google Chrome** (no extra download). If you don't have
+Chrome, install Playwright's browser once with
+`uvx --from playwright playwright install chromium`.
+
+Prefer not to open a browser? Import the cookie from a Chrome you're already logged
+into avios.com with:
+
+```bash
 uvx --from 'avios-cli[login]' avios login --from-browser
 ```
 
-If you installed with `pip install "avios-cli[login]"`, just run `avios login`
-(and `playwright install chromium` once). Plain `uvx avios-cli login` won't work —
-the isolated environment doesn't include the `login` extra.
+Plain `uvx avios-cli login` won't work — the isolated environment doesn't include
+the `login` extra.
 
 Your session cookie is stored at `~/.config/avios/state.json` (mode `600`). It
 expires after ~a day; just run `avios login` again. Run `avios logout` to remove it.

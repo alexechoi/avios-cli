@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-24
+
+### Fixed
+- **Login never actually captured an authenticated session.** The dashboard is a
+  client-side SPA, so `wait_for_url("**/manage-avios/**")` matched the initial
+  navigation immediately and the browser closed before login — saving anonymous
+  cookies, so every call then failed with "Session expired". Login now polls
+  `/auth-gateway/user` until it returns 200 (i.e. you're actually logged in) and
+  only then captures the cookies.
+- Login launches your **system Chrome** (`channel="chrome"`) when available, so no
+  150 MB Chromium download is needed; falls back to bundled Chromium.
+- Corrected the Chromium install command to `uvx --from playwright playwright
+  install chromium`.
+
 ## [0.1.2] - 2026-07-24
 
 ### Fixed
@@ -49,7 +63,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/alexechoi/avios-cli/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/alexechoi/avios-cli/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/alexechoi/avios-cli/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alexechoi/avios-cli/releases/tag/v0.1.0
