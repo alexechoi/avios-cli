@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from avios import __version__
@@ -69,7 +70,7 @@ def _handle_errors() -> Iterator[None]:
         console.print("[red]Session expired.[/] Run [bold]avios login[/] again.")
         raise typer.Exit(2) from exc
     except httpx.HTTPError as exc:
-        console.print(f"[red]Request failed:[/] {exc}")
+        console.print(f"[red]Request failed:[/] {escape(str(exc))}")
         raise typer.Exit(1) from exc
 
 
@@ -113,7 +114,7 @@ def login(
             )
             count = login_via_browser(session, headless=headless)
     except LoginError as exc:
-        console.print(f"[red]{exc}[/]")
+        console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(1) from exc
 
     console.print(f"[green]Logged in.[/] Saved {count} avios cookie(s).")
@@ -123,7 +124,7 @@ def login(
             f"[green]✓ Session works.[/] Balance: [bold cyan]{balance.balance:,}[/] Avios"
         )
     except (NotAuthenticated, SessionExpired, httpx.HTTPError) as exc:
-        console.print(f"[yellow]Saved, but a test call failed:[/] {exc}")
+        console.print(f"[yellow]Saved, but a test call failed:[/] {escape(str(exc))}")
 
 
 @app.command()
