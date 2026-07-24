@@ -67,6 +67,7 @@ def test_client_requires_authentication(settings: Settings) -> None:
 def test_get_json_returns_parsed_body(settings: Settings) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["cookie"] == "appSession=abc"
+        assert request.headers["x-avios-opco"] == "BAEC"
         return httpx.Response(200, json={"balance": 75751})
 
     session = _session(settings, httpx.MockTransport(handler))

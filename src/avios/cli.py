@@ -20,7 +20,7 @@ from rich.table import Table
 from avios import __version__
 from avios.auth import LoginError, import_from_browser, login_via_browser
 from avios.client import AviosClient
-from avios.models import Balance
+from avios.models import Balance, Transaction
 from avios.session import NotAuthenticated, Session, SessionExpired
 
 app = typer.Typer(
@@ -76,19 +76,6 @@ def _handle_errors() -> Iterator[None]:
 
 def _print_json(data: Any) -> None:
     console.print_json(data=data)
-
-
-def _render_records(records: list[dict[str, Any]], title: str) -> None:
-    if not records:
-        console.print(f"[dim]No {title.lower()}.[/]")
-        return
-    keys = [k for k, v in records[0].items() if not isinstance(v, dict | list)][:6]
-    table = Table(title=title)
-    for key in keys:
-        table.add_column(key)
-    for record in records:
-        table.add_row(*[str(record.get(key, "")) for key in keys])
-    console.print(table)
 
 
 # -- auth commands -----------------------------------------------------------
@@ -172,36 +159,53 @@ def _render_balance(result: Balance) -> None:
     console.print(table)
 
 
+def _render_transactions(items: list[Transaction], title: str) -> None:
+    if not items:
+        console.print(f"[dim]No {title.lower()}.[/]")
+        return
+    table = Table(title=title)
+    table.add_column("Date")
+    table.add_column("Description")
+    table.add_column("Avios", justify="right")
+    table.add_column("Type")
+    for txn in items:
+        date = (txn.date_processed or "")[:10]
+        desc = (txn.description or "").splitlines()[0][:44] if txn.description else ""
+        amount = f"{txn.amount:+,}" if txn.amount is not None else ""
+        colour = "green" if (txn.amount or 0) >= 0 else "red"
+        kind = txn.type.value if txn.type else ""
+        table.add_row(date, desc, f"[{colour}]{amount}[/]", kind or "")
+    console.print(table)
+
+
 @app.command()
 def transactions(
     limit: int = typer.Option(20, help="Number of transactions to show."),
     json_out: bool = JSON_OPTION,
 ) -> None:
-    """List recent Avios transactions (experimental; needs the manage-avios session)."""
+    """List recent Avios transactions."""
     with _handle_errors():
         items = _client().get_transactions(limit=limit)
-    records = [item.as_dict() for item in items]
     if json_out:
-        _print_json(records)
+        _print_json([item.as_dict() for item in items])
         return
-    _render_records(records, "Transactions")
+    _render_transactions(items, "Transactions")
 
 
 @app.command()
 def pending(json_out: bool = JSON_OPTION) -> None:
-    """List pending Avios transactions (experimental; needs the manage-avios session)."""
+    """List pending Avios transactions."""
     with _handle_errors():
         items = _client().get_pending_transactions()
-    records = [item.as_dict() for item in items]
     if json_out:
-        _print_json(records)
+        _print_json([item.as_dict() for item in items])
         return
-    _render_records(records, "Pending")
+    _render_transactions(items, "Pending")
 
 
 @app.command()
 def overview() -> None:
-    """Show the dashboard overview (experimental; needs the manage-avios session)."""
+    """Show the dashboard overview (raw JSON)."""
     with _handle_errors():
         result = _client().get_overview()
     _print_json(result.as_dict())

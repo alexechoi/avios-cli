@@ -1,5 +1,25 @@
-[
-  {"date": "2026-07-01", "description": "Flight BA286 SFO-LHR", "avios": 4200},
-  {"date": "2026-06-15", "description": "Tesco groceries", "avios": 150},
-  {"date": "2026-06-02", "description": "Redemption: LHR-JFK", "avios": -50000}
-]
+{
+  "totalRecords": 2,
+  "transactions": [
+    {
+      "identifier": "2139440378",
+      "dateProcessed": "2026-07-21T11:37:35.000Z",
+      "description": "UBER",
+      "type": {"value": "Collection", "id": "DV_COL"},
+      "partner": {"value": "UBER", "id": "UBR"},
+      "amount": 50,
+      "categories": ["collectingAvios"],
+      "recordIndex": 1
+    },
+    {
+      "identifier": "2023965591",
+      "dateProcessed": "2025-12-10T21:37:04.000Z",
+      "description": "Tokyo Haneda to London Heathrow\nClass: Club World\nBA0008",
+      "type": {"value": "Reward Flight", "id": "FLT_RWD"},
+      "partner": {"value": "British Airways", "id": "BA"},
+      "amount": -52000,
+      "categories": ["flights"],
+      "recordIndex": 2
+    }
+  ]
+}

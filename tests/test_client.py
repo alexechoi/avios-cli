@@ -1,9 +1,4 @@
-"""Tests for the typed API client.
-
-The transactions/accounts fixtures are representative, not confirmed shapes, so
-these tests assert on counts and field pass-through (via ``extra='allow'``) rather
-than a rigid schema. The balance shape is confirmed.
-"""
+"""Tests for the typed API client (balance, transactions, profile, ...)."""
 
 from __future__ import annotations
 
@@ -19,8 +14,12 @@ from avios.config import Settings
 from avios.session import Session, SessionExpired
 
 
-def _client(settings: Settings, routes: dict[str, Any]) -> AviosClient:
+def _client(
+    settings: Settings, routes: dict[str, Any], captured: list[httpx.Request] | None = None
+) -> AviosClient:
     def handler(request: httpx.Request) -> httpx.Response:
+        if captured is not None:
+            captured.append(request)
         if request.url.path not in routes:
             return httpx.Response(404, json={})
         body = routes[request.url.path]
@@ -40,28 +39,21 @@ def test_get_balance(settings: Settings, load_fixture: Callable[[str], Any]) -> 
     assert balance.household == 112430
 
 
-def test_get_transactions_from_bare_list(
-    settings: Settings, load_fixture: Callable[[str], Any]
-) -> None:
-    client = _client(settings, {endpoints.TRANSACTIONS: load_fixture("transactions.json")})
-    txns = client.get_transactions()
-    assert len(txns) == 3
-    assert txns[0].as_dict()["description"] == "Flight BA286 SFO-LHR"
-
-
-def test_get_transactions_respects_limit(
-    settings: Settings, load_fixture: Callable[[str], Any]
-) -> None:
-    client = _client(settings, {endpoints.TRANSACTIONS: load_fixture("transactions.json")})
-    assert len(client.get_transactions(limit=2)) == 2
-
-
-def test_get_transactions_from_wrapped_object(settings: Settings) -> None:
-    payload = {"total": 1, "transactions": [{"date": "2026-07-01", "avios": 100}]}
-    client = _client(settings, {endpoints.TRANSACTIONS: payload})
-    txns = client.get_transactions()
-    assert len(txns) == 1
-    assert txns[0].as_dict()["avios"] == 100
+def test_get_transactions(settings: Settings, load_fixture: Callable[[str], Any]) -> None:
+    captured: list[httpx.Request] = []
+    client = _client(
+        settings, {endpoints.TRANSACTIONS: load_fixture("transactions.json")}, captured
+    )
+    txns = client.get_transactions(limit=2)
+    assert len(txns) == 2
+    assert txns[0].type is not None and txns[0].type.value == "Collection"
+    assert txns[0].amount == 50
+    assert txns[1].amount == -52000
+    # Sends the required opco header and the limit as offset.
+    req = captured[-1]
+    assert req.headers["x-avios-opco"] == "BAEC"
+    assert "offset=2" in str(req.url)
+    assert "status=completed" in str(req.url)
 
 
 def test_get_profile(settings: Settings) -> None:

@@ -21,7 +21,6 @@ from avios.tui.art import banner_text
 from avios.tui.widgets import BalanceDisplay
 
 TRANSACTIONS_TO_SHOW = 50
-MAX_COLUMNS = 6
 
 
 class AviosApp(App[None]):
@@ -87,15 +86,17 @@ class AviosApp(App[None]):
         table = self.query_one("#transactions", DataTable)
         table.loading = False
         table.clear(columns=True)
-        records = [txn.as_dict() for txn in transactions]
-        if not records:
+        if not transactions:
             table.add_column("info")
             table.add_row("No transactions")
             return
-        keys = [k for k, v in records[0].items() if not isinstance(v, dict | list)][:MAX_COLUMNS]
-        table.add_columns(*keys)
-        for record in records:
-            table.add_row(*[str(record.get(key, "")) for key in keys])
+        table.add_columns("Date", "Description", "Avios", "Type")
+        for txn in transactions:
+            date = (txn.date_processed or "")[:10]
+            desc = (txn.description or "").splitlines()[0][:44] if txn.description else ""
+            amount = f"{txn.amount:+,}" if txn.amount is not None else ""
+            kind = txn.type.value if txn.type else ""
+            table.add_row(date, desc, amount, kind)
 
 
 def run(client: AviosClient | None = None) -> None:

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     user_agent: str = DEFAULT_USER_AGENT
     config_dir: Path = Field(default_factory=_default_config_dir)
     request_timeout: float = 20.0
+    # Operating company code sent as `x-avios-opco`; required by the manage-avios
+    # API. "BAEC" = British Airways Executive Club (override with AVIOS_OPCO).
+    opco: str = "BAEC"
 
     @property
     def state_path(self) -> Path:

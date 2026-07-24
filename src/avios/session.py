@@ -95,6 +95,8 @@ class Session:
             "accept": "application/json, text/plain, */*",
             "user-agent": self.settings.user_agent,
             "referer": f"{self.settings.base_url}/manage-avios/dashboard",
+            # Required by the manage-avios API (401 without it).
+            "x-avios-opco": self.settings.opco,
             "cookie": cookie,
         }
         return httpx.Client(
