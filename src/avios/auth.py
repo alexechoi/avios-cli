@@ -20,10 +20,12 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 
+from avios import endpoints
 from avios.session import Session
 
 DASHBOARD_PATH = "/manage-avios/dashboard"
 LOGIN_TIMEOUT_MS = 300_000  # 5 minutes to complete password + captcha + MFA
+LOGIN_POLL_MS = 2_000  # how often to check whether the session is authenticated
 SUPPORTED_BROWSERS = ("chrome", "firefox", "edge", "brave", "safari", "chromium")
 
 
@@ -51,46 +53,78 @@ def login_via_browser(
     *,
     headless: bool = False,
     timeout_ms: int = LOGIN_TIMEOUT_MS,
+    playwright_factory: Any = None,
 ) -> int:
-    """Open a browser, wait for the user to log in, and save the session cookie.
+    """Open a browser, wait until the user is actually logged in, save the cookie.
 
-    Returns the number of avios.com cookies captured.
+    Returns the number of avios.com cookies captured. ``playwright_factory`` is an
+    injection point for tests; production uses the real ``sync_playwright``.
     """
     session = session or Session()
+    factory = playwright_factory or _import_sync_playwright()
+    base_url = session.settings.base_url
+
+    with factory() as pw:
+        browser = _launch_browser(pw, headless=headless)
+        ctx = browser.new_context(user_agent=session.settings.user_agent)
+        page = ctx.new_page()
+        page.goto(f"{base_url}{DASHBOARD_PATH}")
+        authed = _wait_for_auth(ctx, page, base_url, timeout_ms)
+        cookies = list(ctx.cookies())
+        browser.close()
+
+    if not authed:
+        raise LoginError("Timed out waiting for login. Run `avios login` again.")
+    session.save_cookies(cookies)
+    return len(_only_avios(cookies))
+
+
+def _import_sync_playwright() -> Any:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise LoginError(
             "Playwright isn't installed. Log in using the 'login' extra:\n"
             "  uvx --from 'avios-cli[login]' avios login\n"
-            "  (first time only: uvx --from 'avios-cli[login]' playwright install chromium)\n"
+            "  (first time only: uvx --from playwright playwright install chromium)\n"
             "Or import the cookie from Chrome instead (no browser download):\n"
             "  uvx --from 'avios-cli[login]' avios login --from-browser"
         ) from exc
+    return sync_playwright
 
-    base_url = session.settings.base_url
-    with sync_playwright() as pw:  # pragma: no cover - requires a real browser
-        try:
-            browser = pw.chromium.launch(headless=headless)
-        except Exception as exc:
-            raise LoginError(
-                "Couldn't launch Chromium. Install the browser once with:\n"
-                "  uvx --from 'avios-cli[login]' playwright install chromium"
-            ) from exc
-        ctx = browser.new_context(user_agent=session.settings.user_agent)
-        page = ctx.new_page()
-        page.goto(f"{base_url}{DASHBOARD_PATH}")
-        try:
-            page.wait_for_url("**/manage-avios/**", timeout=timeout_ms)
-            page.wait_for_timeout(1500)  # let the session cookie settle
-        except Exception as exc:
-            browser.close()
-            raise LoginError("Did not reach the dashboard in time. Please try again.") from exc
-        cookies = list(ctx.cookies())
-        browser.close()
 
-    session.save_cookies(cookies)
-    return len(_only_avios(cookies))
+def _wait_for_auth(ctx: Any, page: Any, base_url: str, timeout_ms: int) -> bool:
+    """Poll the auth endpoint until the session is authenticated (or time out).
+
+    The dashboard is a client-side SPA, so its URL is NOT a reliable signal — it
+    matches the moment we navigate, before login. ``/auth-gateway/user`` returns
+    401 until logged in, then 200.
+    """
+    for _ in range(max(1, timeout_ms // LOGIN_POLL_MS)):
+        if _is_authenticated(ctx, base_url):
+            return True
+        page.wait_for_timeout(LOGIN_POLL_MS)
+    return False
+
+
+def _is_authenticated(ctx: Any, base_url: str) -> bool:
+    try:
+        return bool(ctx.request.get(f"{base_url}{endpoints.AUTH_USER}").ok)
+    except Exception:
+        return False
+
+
+def _launch_browser(pw: Any, *, headless: bool) -> Any:
+    """Launch the user's system Chrome if available, else bundled Chromium."""
+    for kwargs in ({"channel": "chrome"}, {}):
+        try:
+            return pw.chromium.launch(headless=headless, **kwargs)
+        except Exception:
+            continue
+    raise LoginError(
+        "Couldn't launch a browser. Install Chromium once with:\n"
+        "  uvx --from playwright playwright install chromium"
+    )
 
 
 def _default_loader(browser: str) -> Callable[[], Iterable[_RawCookie]]:

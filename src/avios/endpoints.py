@@ -11,6 +11,10 @@ BALANCE = "/en-GB/spend-avios/api/avios-balance"
 # Balance under the manage-avios API — kept as a fallback.
 BALANCE_ALT = "/manage-avios/api/user/current/balance"
 
+# Auth-gateway endpoint: 401 when unauthenticated, 200 once logged in. Used as the
+# "is the browser session authenticated yet?" signal during login.
+AUTH_USER = "/auth-gateway/user"
+
 PROFILE = "/manage-avios/api/user/current"
 OVERVIEW = "/manage-avios/api/user/current/dashboard-overview"
 TRANSACTIONS = "/manage-avios/api/user/current/transactions"

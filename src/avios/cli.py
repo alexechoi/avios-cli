@@ -110,7 +110,8 @@ def login(
         else:
             console.print(
                 "Opening a browser — log in normally (password, captcha, SMS code). "
-                "I'll capture the session once you reach the dashboard."
+                "Keep the window open; it waits until you reach the dashboard, then "
+                "captures your session automatically."
             )
             count = login_via_browser(session, headless=headless)
     except LoginError as exc:
