@@ -12,6 +12,10 @@ browse your transactions and manage your account without leaving the terminal.
 > avios.com website uses, with your own logged-in session. Use at your own risk; it may
 > break at any time and may be against the provider's terms of service.
 
+![avios TUI dashboard](docs/dashboard.svg)
+
+<sub>The <code>avios tui</code> dashboard (demo data). Regenerate with <code>uv run python scripts/screenshot.py</code>.</sub>
+
 ## Status
 
 Early alpha, built in the open. See the [roadmap](#roadmap).
