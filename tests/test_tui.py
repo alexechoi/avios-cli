@@ -39,7 +39,7 @@ async def test_dashboard_populates_balance_and_transactions() -> None:
     async with app.run_test() as pilot:
         await app._load()
         await pilot.pause()
-        assert "100" in app.query_one("#balance", BalanceDisplay).plain
+        assert "100" in app.query_one("#balance", BalanceDisplay).last_text
         table = app.query_one("#transactions", DataTable)
         assert table.row_count == 2
 
@@ -58,7 +58,22 @@ async def test_dashboard_shows_login_hint_when_unauthenticated() -> None:
     async with app.run_test() as pilot:
         await app._load()
         await pilot.pause()
-        assert "avios login" in app.query_one("#balance", BalanceDisplay).plain
+        assert "avios login" in app.query_one("#balance", BalanceDisplay).last_text
+
+
+def test_banner_text_contains_art_and_tagline() -> None:
+    from avios.tui.art import banner_text
+
+    plain = banner_text().plain
+    assert "█" in plain
+    assert "your Avios, in the terminal" in plain
+
+
+async def test_dashboard_mounts_banner() -> None:
+    app = AviosApp(client=FakeClient())  # type: ignore[arg-type]
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.query_one("#banner") is not None
 
 
 def test_cli_tui_launches_app(monkeypatch: pytest.MonkeyPatch) -> None:
