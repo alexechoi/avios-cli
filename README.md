@@ -1,5 +1,9 @@
 # avios-cli
 
+[![CI](https://github.com/alexechoi/avios-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/alexechoi/avios-cli/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+
 A **CLI and TUI for [avios.com](https://www.avios.com)** — check your Avios balance,
 browse your transactions and manage your account without leaving the terminal.
 
@@ -88,6 +92,14 @@ uv run ruff check .
 uv run mypy src
 uv run pytest
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow and
+[CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Security
+
+No passwords are handled or stored — only your session cookie, kept locally at
+`~/.config/avios/state.json` (mode `600`). See [SECURITY.md](SECURITY.md).
 
 ## License
 
