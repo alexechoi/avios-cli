@@ -1,28 +1,159 @@
-"""Smoke tests for the CLI entry point."""
+"""Tests for the CLI command surface.
+
+The client and login helpers are monkeypatched, so these tests exercise argument
+parsing, rendering and error handling without any network or browser.
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
+import pytest
 from typer.testing import CliRunner
 
 from avios import __version__
+from avios.auth import LoginError
 from avios.cli import app
+from avios.models import Account, Balance, Overview, Profile, Transaction
+from avios.session import NotAuthenticated, SessionExpired
 
 runner = CliRunner()
 
 
+class FakeClient:
+    """Stand-in for AviosClient with canned data."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def get_balance(self) -> Balance:
+        return Balance(balance=100, household_avios_balance=200)
+
+    def get_transactions(self, limit: int | None = None) -> list[Transaction]:
+        items = [
+            Transaction.model_validate({"date": "2026-07-01", "avios": 100}),
+            Transaction.model_validate({"date": "2026-06-01", "avios": 50}),
+        ]
+        return items[:limit] if limit is not None else items
+
+    def get_pending_transactions(self) -> list[Transaction]:
+        return []
+
+    def get_accounts(self) -> list[Account]:
+        return [Account.model_validate({"programme": "BAEC", "balance": 100})]
+
+    def get_overview(self) -> Overview:
+        return Overview.model_validate({"tier": "Blue"})
+
+    def get_profile(self) -> Profile:
+        return Profile.model_validate({"firstName": "Alex"})
+
+    def raw(self, path: str) -> dict[str, str]:
+        return {"path": path}
+
+
+@pytest.fixture
+def fake_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
+
+
+# -- version / help ----------------------------------------------------------
 def test_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert __version__ in result.stdout
 
 
-def test_help_lists_the_app() -> None:
-    result = runner.invoke(app, ["--help"])
-    assert result.exit_code == 0
-    assert "avios" in result.stdout.lower()
-
-
 def test_no_args_shows_help() -> None:
     result = runner.invoke(app, [])
-    # no_args_is_help exits with code 0 and prints usage
     assert "Usage" in result.stdout
+
+
+# -- data commands -----------------------------------------------------------
+def test_balance_table(fake_client: None) -> None:
+    result = runner.invoke(app, ["balance"])
+    assert result.exit_code == 0
+    assert "100" in result.stdout
+
+
+def test_balance_json(fake_client: None) -> None:
+    result = runner.invoke(app, ["balance", "--json"])
+    assert result.exit_code == 0
+    assert '"balance"' in result.stdout
+    assert '"householdAviosBalance"' in result.stdout
+
+
+def test_transactions_respects_limit(fake_client: None) -> None:
+    result = runner.invoke(app, ["transactions", "--limit", "1"])
+    assert result.exit_code == 0
+    assert "2026-07-01" in result.stdout
+    assert "2026-06-01" not in result.stdout
+
+
+def test_transactions_json(fake_client: None) -> None:
+    result = runner.invoke(app, ["transactions", "--json"])
+    assert result.exit_code == 0
+    assert '"avios"' in result.stdout
+
+
+def test_accounts(fake_client: None) -> None:
+    result = runner.invoke(app, ["accounts"])
+    assert result.exit_code == 0
+    assert "BAEC" in result.stdout
+
+
+def test_raw(fake_client: None) -> None:
+    result = runner.invoke(app, ["raw", "/x"])
+    assert result.exit_code == 0
+    assert '"path"' in result.stdout
+
+
+# -- error handling ----------------------------------------------------------
+def test_not_authenticated(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Client(FakeClient):
+        def get_balance(self) -> Balance:
+            raise NotAuthenticated
+
+    monkeypatch.setattr("avios.cli.AviosClient", Client)
+    result = runner.invoke(app, ["balance"])
+    assert result.exit_code == 1
+    assert "Not logged in" in result.stdout
+
+
+def test_session_expired(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Client(FakeClient):
+        def get_balance(self) -> Balance:
+            raise SessionExpired
+
+    monkeypatch.setattr("avios.cli.AviosClient", Client)
+    result = runner.invoke(app, ["balance"])
+    assert result.exit_code == 2
+    assert "Session expired" in result.stdout
+
+
+# -- login / logout ----------------------------------------------------------
+def test_login_from_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("avios.cli.import_from_browser", lambda session, browser: 2)
+    monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
+    result = runner.invoke(app, ["login", "--from-browser"])
+    assert result.exit_code == 0
+    assert "Logged in" in result.stdout
+    assert "Balance" in result.stdout
+
+
+def test_login_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(session: Any, browser: str) -> int:
+        raise LoginError("nope")
+
+    monkeypatch.setattr("avios.cli.import_from_browser", boom)
+    result = runner.invoke(app, ["login", "--from-browser"])
+    assert result.exit_code == 1
+    assert "nope" in result.stdout
+
+
+def test_logout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    result = runner.invoke(app, ["logout"])
+    assert result.exit_code == 0
+    assert "Logged out" in result.stdout
