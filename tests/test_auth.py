@@ -104,5 +104,5 @@ def test_login_via_browser_without_playwright(
 ) -> None:
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
-    with pytest.raises(LoginError, match="Playwright is required"):
+    with pytest.raises(LoginError, match="Playwright isn't installed"):
         login_via_browser(_session(settings))

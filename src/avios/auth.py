@@ -61,13 +61,22 @@ def login_via_browser(
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise LoginError(
-            'Playwright is required. Install with: pip install "avios-cli[login]" '
-            "then: playwright install chromium"
+            "Playwright isn't installed. Log in using the 'login' extra:\n"
+            "  uvx --from 'avios-cli[login]' avios login\n"
+            "  (first time only: uvx --from 'avios-cli[login]' playwright install chromium)\n"
+            "Or import the cookie from Chrome instead (no browser download):\n"
+            "  uvx --from 'avios-cli[login]' avios login --from-browser"
         ) from exc
 
     base_url = session.settings.base_url
     with sync_playwright() as pw:  # pragma: no cover - requires a real browser
-        browser = pw.chromium.launch(headless=headless)
+        try:
+            browser = pw.chromium.launch(headless=headless)
+        except Exception as exc:
+            raise LoginError(
+                "Couldn't launch Chromium. Install the browser once with:\n"
+                "  uvx --from 'avios-cli[login]' playwright install chromium"
+            ) from exc
         ctx = browser.new_context(user_agent=session.settings.user_agent)
         page = ctx.new_page()
         page.goto(f"{base_url}{DASHBOARD_PATH}")
@@ -90,7 +99,8 @@ def _default_loader(browser: str) -> Callable[[], Iterable[_RawCookie]]:
         import browser_cookie3 as bc3
     except ImportError as exc:
         raise LoginError(
-            'browser-cookie3 is required. Install with: pip install "avios-cli[login]"'
+            "browser-cookie3 isn't installed. Run with the 'login' extra:\n"
+            "  uvx --from 'avios-cli[login]' avios login --from-browser"
         ) from exc
     fn = getattr(bc3, browser, None)
     if fn is None:

@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-24
+
+### Fixed
+- Login error messages: `[login]` was swallowed by Rich markup (showed
+  `avios-cli` instead of `avios-cli[login]`) — error text is now escaped.
+- Login guidance is uvx-aware: suggests `uvx --from 'avios-cli[login]' avios login`,
+  the one-time `playwright install chromium`, and the `--from-browser` alternative;
+  a missing Chromium at launch now gives a clear install hint.
+
 ## [0.1.1] - 2026-07-24
 
 ### Fixed
@@ -40,6 +49,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/alexechoi/avios-cli/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/alexechoi/avios-cli/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/alexechoi/avios-cli/releases/tag/v0.1.0
