@@ -1,0 +1,30 @@
+# Changelog
+
+All notable changes to this project are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
+to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- Project scaffolding: src-layout `avios` package, hatchling packaging, `avios`
+  console script, ruff + mypy + pytest tooling, GitHub Actions CI (Python
+  3.10–3.13).
+- Config layer (`pydantic-settings`, XDG paths) and pydantic models.
+- Session/cookie layer: `state.json` storage (mode `600`), `AVIOS_COOKIE`
+  override, authenticated `httpx` client, expiry detection.
+- Typed `AviosClient`: balance, transactions (+`--limit`), pending, accounts,
+  profile, overview, and a `raw` escape hatch.
+- Browser-assisted login: `avios login` (Playwright) and
+  `avios login --from-browser` (browser-cookie3); `avios logout`.
+- CLI commands with Rich rendering and `--json` output.
+- Textual TUI dashboard (`avios tui`): balance header + scrollable transactions
+  table, non-blocking refresh.
+- OSS project files: CONTRIBUTING, SECURITY, issue/PR templates, PyPI publish
+  workflow, Dependabot.
+
+### Noted
+- Reward-flight **availability** search is not yet implemented (needs a British
+  Airways capture).
+
+[Unreleased]: https://github.com/alexechoi/avios-cli/commits/main
