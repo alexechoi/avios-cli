@@ -18,10 +18,12 @@ from rich.markup import escape
 from rich.table import Table
 
 from avios import __version__
+from avios.accounts import Account, AccountStore
 from avios.auth import LoginError, import_from_browser, login_via_browser
 from avios.client import AviosClient
 from avios.models import Balance, Transaction
-from avios.session import NotAuthenticated, Session, SessionExpired
+from avios.programmes import get_programme, programme_slugs
+from avios.session import NotAuthenticated, SessionExpired
 
 app = typer.Typer(
     add_completion=False,
@@ -54,8 +56,19 @@ def main(
 
 
 # -- helpers -----------------------------------------------------------------
-def _client() -> AviosClient:
-    return AviosClient(Session())
+def _client(slug: str | None = None) -> AviosClient:
+    """Client for one account (given slug, else the default = first logged in)."""
+    store = AccountStore()
+    accounts = store.list()
+    if not accounts:
+        raise NotAuthenticated("No accounts. Run `avios login`.")
+    if slug is not None:
+        account = store.get(slug)
+        if account is None:
+            raise NotAuthenticated(f"Not logged in to '{slug}'. Run `avios login {slug}`.")
+    else:
+        account = accounts[0]
+    return AviosClient(account.session())
 
 
 @contextmanager
@@ -81,6 +94,9 @@ def _print_json(data: Any) -> None:
 # -- auth commands -----------------------------------------------------------
 @app.command()
 def login(
+    programme: str = typer.Argument(
+        "ba", help=f"Programme to log in to: {', '.join(programme_slugs())}."
+    ),
     from_browser: bool = typer.Option(
         False, "--from-browser", help="Import the cookie from a running browser (no popup)."
     ),
@@ -92,49 +108,72 @@ def login(
         False, help="Run the login browser headless (only works without captcha/MFA)."
     ),
 ) -> None:
-    """Log in to avios.com (opens a browser once; captures your session cookie)."""
-    session = Session()
+    """Log in to an Avios programme (opens a browser once; captures the session)."""
+    try:
+        prog = get_programme(programme)
+    except KeyError as exc:
+        console.print(f"[red]{escape(str(exc))}[/]")
+        raise typer.Exit(1) from exc
+
+    where = ""
     try:
         if from_browser:
-            result = import_from_browser(session, browser, profile=profile)
+            result = import_from_browser(prog, browser=browser, profile=profile)
             where = f" from {browser} profile '{result.profile}'" if result.profile else ""
             if not result.authenticated:
                 console.print(
                     f"[yellow]Imported {result.count} cookie(s){where}, but they're not a "
-                    "logged-in avios session.[/]"
+                    f"logged-in {prog.name} session.[/]"
                 )
                 console.print(
-                    "Log into avios.com in that profile, pick another with "
+                    "Log into that programme in the browser profile, pick another with "
                     "[bold]--profile[/], or use [bold]avios login[/] (browser)."
                 )
                 raise typer.Exit(2)
-            console.print(f"[green]Logged in{where}.[/] Saved {result.count} cookie(s).")
+            cookies = result.cookies
         else:
             console.print(
-                "Opening a browser — log in normally (password, captcha, SMS code). "
-                "Keep the window open; it waits until you reach the dashboard, then "
-                "captures your session automatically."
+                f"Opening a browser — log in to [bold]{prog.name}[/] (password, captcha, "
+                "SMS code). Keep the window open; it captures your session automatically."
             )
-            count = login_via_browser(session, headless=headless)
-            console.print(f"[green]Logged in.[/] Saved {count} avios cookie(s).")
+            cookies = login_via_browser(prog, headless=headless)
     except LoginError as exc:
         console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(1) from exc
 
+    account = Account.from_programme(prog, cookies=cookies)
+    AccountStore().save(account)
+    console.print(f"[green]Logged in to {prog.name}{where}.[/] Saved {len(cookies)} cookie(s).")
     try:
-        balance = AviosClient(session).get_balance()
-        console.print(
-            f"[green]✓ Session works.[/] Balance: [bold cyan]{balance.balance:,}[/] Avios"
-        )
+        balance = AviosClient(account.session()).get_balance()
+        console.print(f"[green]✓ Works.[/] Balance: [bold cyan]{balance.balance:,}[/] Avios")
     except (NotAuthenticated, SessionExpired, httpx.HTTPError) as exc:
         console.print(f"[yellow]Saved, but a test call failed:[/] {escape(str(exc))}")
 
 
 @app.command()
-def logout() -> None:
-    """Remove the stored session."""
-    Session().clear()
-    console.print("[green]Logged out.[/]")
+def logout(
+    programme: str | None = typer.Argument(None, help="Programme to log out (default: all)."),
+) -> None:
+    """Log out of one programme, or all of them."""
+    store = AccountStore()
+    if programme is not None:
+        try:
+            prog = get_programme(programme)
+        except KeyError as exc:
+            console.print(f"[red]{escape(str(exc))}[/]")
+            raise typer.Exit(1) from exc
+        removed = store.remove(prog.slug)
+        console.print(
+            f"[green]Logged out of {prog.name}.[/]" if removed else "[dim]Not logged in.[/]"
+        )
+        return
+    slugs = [account.slug for account in store.list()]
+    for slug in slugs:
+        store.remove(slug)
+    console.print(
+        f"[green]Logged out of {len(slugs)} account(s).[/]" if slugs else "[dim]No accounts.[/]"
+    )
 
 
 # -- data commands -----------------------------------------------------------

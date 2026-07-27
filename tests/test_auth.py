@@ -24,7 +24,9 @@ from avios.auth import (
     login_via_browser,
 )
 from avios.config import Settings
-from avios.session import Session
+from avios.programmes import get_programme
+
+BA = get_programme("ba")
 
 
 class FakeCookie:
@@ -32,10 +34,6 @@ class FakeCookie:
         self.name = name
         self.value = value
         self.domain = domain
-
-
-def _session(settings: Settings) -> Session:
-    return Session(settings)
 
 
 def test_to_cookie_dicts() -> None:
@@ -54,9 +52,9 @@ def test_only_avios_filters_foreign_domains() -> None:
 
 
 def test_import_from_browser_uses_authenticated_cookies(settings: Settings) -> None:
-    session = _session(settings)
     result = import_from_browser(
-        session,
+        BA,
+        settings=settings,
         loader=lambda: [
             FakeCookie("appSession", "abc", "www.avios.com"),
             FakeCookie("_ga", "junk", ".google.com"),
@@ -66,26 +64,26 @@ def test_import_from_browser_uses_authenticated_cookies(settings: Settings) -> N
     assert isinstance(result, ImportResult)
     assert result.count == 1  # only the avios cookie
     assert result.authenticated is True
-    assert session.load_cookies() == [
-        {"name": "appSession", "value": "abc", "domain": "www.avios.com"}
-    ]
+    assert result.cookies == [{"name": "appSession", "value": "abc", "domain": "www.avios.com"}]
 
 
 def test_import_from_browser_reports_unauthenticated(settings: Settings) -> None:
-    session = _session(settings)
     result = import_from_browser(
-        session,
+        BA,
+        settings=settings,
         loader=lambda: [FakeCookie("appSession", "stale", "www.avios.com")],
         authenticator=lambda cookies: False,  # cookies exist but don't authenticate
     )
     assert result.count == 1
-    assert result.authenticated is False  # saved as best-effort, flagged as not working
+    assert result.authenticated is False  # returned as best-effort, flagged as not working
+    assert result.cookies == [{"name": "appSession", "value": "stale", "domain": "www.avios.com"}]
 
 
 def test_import_from_browser_no_cookies_raises(settings: Settings) -> None:
     with pytest.raises(LoginError, match="No avios.com cookies"):
         import_from_browser(
-            _session(settings),
+            BA,
+            settings=settings,
             loader=lambda: [FakeCookie("_ga", "j", ".x.com")],
             authenticator=lambda cookies: True,
         )
@@ -104,7 +102,7 @@ def test_login_via_browser_without_playwright(
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
     with pytest.raises(LoginError, match="Playwright isn't installed"):
-        login_via_browser(_session(settings))
+        login_via_browser(BA, settings=settings)
 
 
 # --- fake Playwright (persistent context) to exercise the login flow ------------
@@ -190,27 +188,27 @@ def test_login_captures_only_after_authenticated(settings: Settings) -> None:
         {"name": "_ga", "value": "junk", "domain": ".google.com"},
     ]
     ctx = _FakeContext(ok_after=3, cookies=cookies)
-    session = _session(settings)
 
-    count = login_via_browser(session, timeout_ms=100_000, playwright_factory=_FakeFactory(ctx))
+    captured = login_via_browser(
+        BA, settings=settings, timeout_ms=100_000, playwright_factory=_FakeFactory(ctx)
+    )
 
-    assert count == 1  # only the avios cookie
-    assert session.load_cookies() == cookies
+    assert captured == [{"name": "appSession", "value": "x", "domain": "www.avios.com"}]
     assert ctx.closed
     assert ctx.request.calls >= 3  # polled until authenticated, not immediately
 
 
-def test_login_times_out_without_saving(settings: Settings) -> None:
+def test_login_times_out_without_returning(settings: Settings) -> None:
     ctx = _FakeContext(
         ok_after=999, cookies=[{"name": "appSession", "value": "x", "domain": "www.avios.com"}]
     )
-    session = _session(settings)
 
     with pytest.raises(LoginError, match="Timed out"):
-        login_via_browser(session, timeout_ms=6_000, playwright_factory=_FakeFactory(ctx))
+        login_via_browser(
+            BA, settings=settings, timeout_ms=6_000, playwright_factory=_FakeFactory(ctx)
+        )
 
-    assert session.is_authenticated() is False  # nothing saved on timeout
-    assert ctx.closed
+    assert ctx.closed  # browser is always cleaned up, even on timeout
 
 
 def test_open_login_context_prefers_chrome_then_falls_back(tmp_path: object) -> None:

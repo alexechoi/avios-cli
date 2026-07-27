@@ -19,17 +19,17 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 
 from avios import endpoints
-from avios.config import Settings
-from avios.session import Session, cookie_header_from
+from avios.config import Settings, get_settings
+from avios.programmes import Programme
+from avios.session import cookie_header_from
 
-DASHBOARD_PATH = "/manage-avios/dashboard"
 LOGIN_TIMEOUT_MS = 300_000  # 5 minutes to complete password + captcha + MFA
 LOGIN_POLL_MS = 2_000  # how often to check whether the session is authenticated
 SUPPORTED_BROWSERS = ("chrome", "firefox", "edge", "brave", "safari", "chromium")
@@ -71,6 +71,7 @@ class ImportResult:
     count: int
     profile: str | None
     authenticated: bool
+    cookies: list[dict[str, Any]] = field(default_factory=list)
 
 
 class _RawCookie(Protocol):
@@ -89,34 +90,34 @@ def _only_avios(cookies: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def login_via_browser(
-    session: Session | None = None,
+    programme: Programme,
     *,
+    settings: Settings | None = None,
     headless: bool = False,
     timeout_ms: int = LOGIN_TIMEOUT_MS,
     playwright_factory: Any = None,
-) -> int:
-    """Open a browser, wait until the user is actually logged in, save the cookie.
+) -> list[dict[str, Any]]:
+    """Open a browser at the programme's login page, wait for the user to log in,
+    and return the captured avios.com cookies (the caller persists them).
 
-    Returns the number of avios.com cookies captured. ``playwright_factory`` is an
-    injection point for tests; production uses the real ``sync_playwright``.
+    ``playwright_factory`` is an injection point for tests.
     """
-    session = session or Session()
+    settings = settings or get_settings()
     factory = playwright_factory or _import_sync_playwright()
-    base_url = session.settings.base_url
-    profile_dir = str(session.settings.config_dir / "chrome-profile")
+    # Per-programme profile so BA and Iberia logins don't share a browser session.
+    profile_dir = str(settings.config_dir / "chrome-profile" / programme.slug)
 
     with factory() as pw:
         ctx = _open_login_context(pw, headless=headless, user_data_dir=profile_dir)
         page = ctx.new_page()
-        page.goto(f"{base_url}{DASHBOARD_PATH}")
-        authed = _wait_for_auth(ctx, page, base_url, timeout_ms)
+        page.goto(programme.login_url)
+        authed = _wait_for_auth(ctx, page, programme.base_url, timeout_ms)
         cookies = list(ctx.cookies())
         ctx.close()
 
     if not authed:
         raise LoginError("Timed out waiting for login. Run `avios login` again.")
-    session.save_cookies(cookies)
-    return len(_only_avios(cookies))
+    return _only_avios(cookies)
 
 
 def _import_sync_playwright() -> Any:
@@ -243,21 +244,17 @@ def _candidate_cookie_sets(
     return candidates
 
 
-def _cookies_authenticate(settings: Settings, cookies: list[dict[str, Any]]) -> bool:
-    """True if these cookies yield a 200 from the auth endpoint."""
+def _cookies_authenticate(base_url: str, user_agent: str, cookies: list[dict[str, Any]]) -> bool:
+    """True if these cookies yield a 200 from the accounts endpoint on ``base_url``."""
     header = cookie_header_from(cookies)
     if not header:
         return False
     try:
         with httpx.Client(
-            base_url=settings.base_url,
+            base_url=base_url,
             timeout=15.0,
             follow_redirects=False,
-            headers={
-                "accept": "application/json",
-                "user-agent": settings.user_agent,
-                "cookie": header,
-            },
+            headers={"accept": "application/json", "user-agent": user_agent, "cookie": header},
         ) as client:
             return client.get(endpoints.ACCOUNTS).status_code == 200
     except httpx.HTTPError:
@@ -265,20 +262,24 @@ def _cookies_authenticate(settings: Settings, cookies: list[dict[str, Any]]) -> 
 
 
 def import_from_browser(
-    session: Session | None = None,
-    browser: str = "chrome",
+    programme: Programme,
     *,
+    settings: Settings | None = None,
+    browser: str = "chrome",
     profile: str | None = None,
     loader: Callable[[], Iterable[_RawCookie]] | None = None,
     authenticator: Callable[[list[dict[str, Any]]], bool] | None = None,
 ) -> ImportResult:
-    """Import the avios.com session cookie from a browser profile.
+    """Import a programme's session cookie from a running browser profile.
 
-    Scans the browser's profiles, prefers the one whose cookies actually
-    authenticate, and saves them. ``loader``/``authenticator`` are test seams.
+    Scans the browser's profiles, prefers the one whose cookies authenticate, and
+    returns them (the caller persists them). ``loader``/``authenticator`` are test
+    seams.
     """
-    session = session or Session()
-    authenticate = authenticator or (lambda c: _cookies_authenticate(session.settings, c))
+    settings = settings or get_settings()
+    authenticate = authenticator or (
+        lambda c: _cookies_authenticate(programme.base_url, settings.user_agent, c)
+    )
 
     if loader is not None:
         candidates: list[tuple[str, list[dict[str, Any]]]] = [
@@ -302,9 +303,10 @@ def import_from_browser(
     if chosen is None:
         where = f"profile '{profile}'" if profile else browser
         raise LoginError(
-            f"No avios.com cookies found in {where}. Log into avios.com in that "
-            "browser first (and check the profile with --profile)."
+            f"No avios.com cookies found in {where}. Log into {programme.name} in "
+            "that browser first (and check the profile with --profile)."
         )
     name, cookies = chosen
-    session.save_cookies(cookies)
-    return ImportResult(count=len(cookies), profile=name, authenticated=working is not None)
+    return ImportResult(
+        count=len(cookies), profile=name, authenticated=working is not None, cookies=cookies
+    )

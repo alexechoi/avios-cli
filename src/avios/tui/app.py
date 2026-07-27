@@ -14,13 +14,22 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Footer, Header, Static
 
+from avios.accounts import AccountStore
 from avios.client import AviosClient
 from avios.models import Transaction
-from avios.session import NotAuthenticated, Session, SessionExpired
+from avios.session import NotAuthenticated, SessionExpired
 from avios.tui.art import banner_text
 from avios.tui.widgets import BalanceDisplay
 
 TRANSACTIONS_TO_SHOW = 50
+
+
+def _default_client() -> AviosClient:
+    """Client for the first logged-in account (raises NotAuthenticated if none)."""
+    accounts = AccountStore().list()
+    if not accounts:
+        raise NotAuthenticated("No accounts. Run `avios login`.")
+    return AviosClient(accounts[0].session())
 
 
 class AviosApp(App[None]):
@@ -36,7 +45,7 @@ class AviosApp(App[None]):
 
     def __init__(self, client: AviosClient | None = None) -> None:
         super().__init__()
-        self._client = client or AviosClient(Session())
+        self._client = client or _default_client()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)

@@ -13,9 +13,11 @@ import pytest
 from typer.testing import CliRunner
 
 from avios import __version__
+from avios.accounts import Account, AccountStore
 from avios.auth import ImportResult, LoginError
 from avios.cli import app
 from avios.models import Balance, Overview, Profile, Transaction
+from avios.programmes import get_programme
 from avios.session import NotAuthenticated, SessionExpired
 
 runner = CliRunner()
@@ -74,7 +76,16 @@ class FakeClient:
 
 
 @pytest.fixture
-def fake_client(monkeypatch: pytest.MonkeyPatch) -> None:
+def account_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> AccountStore:
+    """An isolated store with one logged-in BA account (data commands need one)."""
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    store = AccountStore()
+    store.save(Account.from_programme(get_programme("ba"), cookies=[{"name": "s", "value": "1"}]))
+    return store
+
+
+@pytest.fixture
+def fake_client(account_store: AccountStore, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
 
 
@@ -133,7 +144,14 @@ def test_raw(fake_client: None) -> None:
 
 
 # -- error handling ----------------------------------------------------------
-def test_not_authenticated(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_accounts_prompts_login(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    result = runner.invoke(app, ["balance"])
+    assert result.exit_code == 1
+    assert "Not logged in" in result.stdout
+
+
+def test_not_authenticated(account_store: AccountStore, monkeypatch: pytest.MonkeyPatch) -> None:
     class Client(FakeClient):
         def get_balance(self) -> Balance:
             raise NotAuthenticated
@@ -144,7 +162,7 @@ def test_not_authenticated(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Not logged in" in result.stdout
 
 
-def test_session_expired(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_session_expired(account_store: AccountStore, monkeypatch: pytest.MonkeyPatch) -> None:
     class Client(FakeClient):
         def get_balance(self) -> Balance:
             raise SessionExpired
@@ -156,32 +174,49 @@ def test_session_expired(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # -- login / logout ----------------------------------------------------------
-def test_login_from_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_login_from_browser(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
     monkeypatch.setattr(
         "avios.cli.import_from_browser",
-        lambda session, browser, profile=None: ImportResult(2, "Default", True),
+        lambda prog, browser="chrome", profile=None: ImportResult(2, "Default", True),
     )
     monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
-    result = runner.invoke(app, ["login", "--from-browser"])
+    result = runner.invoke(app, ["login", "iberia", "--from-browser"])
     assert result.exit_code == 0
-    assert "Logged in" in result.stdout
-    assert "Default" in result.stdout
-    assert "Balance" in result.stdout
+    out = " ".join(result.stdout.split())  # Rich wraps lines
+    assert "Logged in to Iberia" in out  # names the programme
+    assert "Default" in out  # reports which profile it used
+    assert "Balance" in out
+    # The account is persisted under its slug.
+    assert (tmp_path / "avios" / "accounts" / "iberia.json").exists()
 
 
-def test_login_from_browser_unauthenticated(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_login_from_browser_unauthenticated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
     monkeypatch.setattr(
         "avios.cli.import_from_browser",
-        lambda session, browser, profile=None: ImportResult(20, "Default", False),
+        lambda prog, browser="chrome", profile=None: ImportResult(20, "Default", False),
     )
     result = runner.invoke(app, ["login", "--from-browser"])
     assert result.exit_code == 2
     normalized = " ".join(result.stdout.split())  # Rich wraps lines
-    assert "not a logged-in avios session" in normalized
+    assert "not a logged-in British Airways session" in normalized
+    # Nothing is saved when the imported cookies don't authenticate.
+    assert not (tmp_path / "avios" / "accounts").exists()
 
 
-def test_login_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(session: Any, browser: str, profile: str | None = None) -> ImportResult:
+def test_login_unknown_programme(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    result = runner.invoke(app, ["login", "nope", "--from-browser"])
+    assert result.exit_code == 1
+
+
+def test_login_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+
+    def boom(prog: Any, browser: str = "chrome", profile: str | None = None) -> ImportResult:
         raise LoginError("nope")
 
     monkeypatch.setattr("avios.cli.import_from_browser", boom)
@@ -190,8 +225,31 @@ def test_login_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "nope" in result.stdout
 
 
-def test_logout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_logout_single_programme(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    store = AccountStore()
+    store.save(Account.from_programme(get_programme("ba"), cookies=[{"name": "s", "value": "1"}]))
+    result = runner.invoke(app, ["logout", "ba"])
+    assert result.exit_code == 0
+    assert "Logged out of British Airways" in result.stdout
+    assert store.get("ba") is None
+
+
+def test_logout_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    store = AccountStore()
+    store.save(Account.from_programme(get_programme("ba"), cookies=[{"name": "s", "value": "1"}]))
+    store.save(
+        Account.from_programme(get_programme("iberia"), cookies=[{"name": "s", "value": "2"}])
+    )
+    result = runner.invoke(app, ["logout"])
+    assert result.exit_code == 0
+    assert "2 account(s)" in result.stdout
+    assert store.list() == []
+
+
+def test_logout_when_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
     result = runner.invoke(app, ["logout"])
     assert result.exit_code == 0
-    assert "Logged out" in result.stdout
+    assert "No accounts" in result.stdout
