@@ -1,10 +1,8 @@
-"""The avios Textual dashboard.
+"""The avios Textual application.
 
-A single screen: a combined balance header and a scrollable transactions table
-merged across every logged-in account. Data is fetched off the event loop (the
-API client is synchronous httpx) via ``asyncio.to_thread`` inside an exclusive
-worker, so the UI never blocks. Per-account failures are captured by the
-aggregation layer rather than blanking the whole dashboard.
+The default tab is the combined account dashboard; a second tab provides British
+Airways reward-flight search. Synchronous clients run off the event loop so the UI
+stays responsive.
 """
 
 from __future__ import annotations
@@ -13,12 +11,14 @@ import asyncio
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import DataTable, Footer, Header, Static, TabbedContent, TabPane
 
 from avios import aggregate
 from avios.accounts import Account, AccountStore
 from avios.aggregate import TaggedTransaction
+from avios.client import AviosClient
 from avios.tui.art import banner_text
+from avios.tui.rewards import RewardFlightsPane, RewardSearchClient
 from avios.tui.widgets import BalanceDisplay
 
 TRANSACTIONS_TO_SHOW = 50
@@ -35,15 +35,31 @@ class AviosApp(App[None]):
         ("q", "quit", "Quit"),
     ]
 
-    def __init__(self, accounts: list[Account] | None = None) -> None:
+    def __init__(
+        self,
+        accounts: list[Account] | None = None,
+        reward_client: RewardSearchClient | None = None,
+    ) -> None:
         super().__init__()
         self._accounts = accounts if accounts is not None else AccountStore().list()
+        ba = next((account for account in self._accounts if account.slug == "ba"), None)
+        self._reward_client = (
+            reward_client
+            if reward_client is not None
+            else AviosClient(ba.session())
+            if ba is not None
+            else None
+        )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Static(banner_text(), id="banner")
-        yield BalanceDisplay("Loading…", id="balance")
-        yield DataTable(id="transactions", zebra_stripes=True, cursor_type="row")
+        with TabbedContent(initial="dashboard-tab", id="main-tabs"):
+            with TabPane("Dashboard", id="dashboard-tab"):
+                yield BalanceDisplay("Loading…", id="balance")
+                yield DataTable(id="transactions", zebra_stripes=True, cursor_type="row")
+            with TabPane("Reward Flights", id="rewards-tab"):
+                yield RewardFlightsPane(client=self._reward_client)
         yield Footer()
 
     def on_mount(self) -> None:

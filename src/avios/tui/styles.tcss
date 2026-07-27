@@ -16,6 +16,79 @@ Screen {
     border-bottom: solid $primary;
 }
 
+#main-tabs {
+    height: 1fr;
+}
+
+#dashboard-tab {
+    padding: 0;
+}
+
 #transactions {
+    height: 1fr;
+}
+
+#reward-flights-pane {
+    padding: 0 1;
+    height: 1fr;
+}
+
+#flight-title {
+    height: 2;
+    content-align: center middle;
+    text-style: bold;
+    color: $accent;
+}
+
+#flight-form {
+    height: auto;
+    padding: 0 1;
+    border: round $primary;
+}
+
+.flight-form-row {
+    height: 3;
+}
+
+.flight-form-row > Input, .flight-form-row > Select {
+    width: 1fr;
+    margin-right: 1;
+    border-title-color: $text;
+}
+
+#flight-adults, #flight-young-adults, #flight-children, #flight-infants {
+    width: 1fr;
+}
+
+#flight-show-unavailable {
+    width: auto;
+    margin: 0 1;
+}
+
+#flight-search {
+    width: 12;
+}
+
+#flight-cabins {
+    height: 3;
+}
+
+#flight-cabins > Checkbox {
+    width: 1fr;
+}
+
+#flight-status {
+    height: 2;
+    padding: 0 1;
+    content-align: left middle;
+}
+
+.flight-result-heading {
+    height: 2;
+    padding: 0 1;
+    text-style: bold;
+}
+
+#outbound-flights, #inbound-flights {
     height: 1fr;
 }

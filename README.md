@@ -4,9 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
-A **CLI and TUI for your Avios programmes** — check balances and browse transactions
-without leaving the terminal. British Airways and Iberia use avios.com; Finnair Plus
-uses Finnair's own OAuth and loyalty API.
+A **CLI and TUI for your Avios programmes** — check balances, browse transactions,
+and search British Airways reward-flight availability without leaving the terminal.
+British Airways, Iberia, and Aer Lingus use avios.com; Finnair Plus uses Finnair's
+own OAuth and loyalty API.
 
 > ⚠️ **Unofficial.** This project is not affiliated with, authorised by, or endorsed by
 > Avios, British Airways, Finnair or IAG Loyalty. It drives the same private endpoints
@@ -16,6 +17,10 @@ uses Finnair's own OAuth and loyalty API.
 ![avios TUI dashboard](docs/dashboard.svg)
 
 <sub>The <code>avios tui</code> dashboard (demo data). Regenerate with <code>uv run python scripts/screenshot.py</code>.</sub>
+
+![avios reward-flight search](docs/reward-flights.svg)
+
+<sub>Direct BA reward-seat availability by date and cabin (synthetic demo data).</sub>
 
 ## Status
 
@@ -88,6 +93,8 @@ for Finnair because browser-cookie import cannot read that token.
 Each programme session is stored at `~/.config/avios/accounts/<programme>.json`
 (mode `600`). Sessions expire; just log in to that programme again. Use
 `avios logout <programme>` for one account or `avios logout` for all accounts.
+For BA, browser-assisted login also opens the reward-flight finder briefly so its
+separate `spend-avios` session is captured.
 
 ## Usage
 
@@ -103,11 +110,17 @@ avios balance --account iberia # just one programme
 avios overview                 # dashboard summary
 avios whoami                   # name, tier, membership, email
 avios raw /shell/api/users/current/accounts   # hit any endpoint directly
+
+# Direct British Airways reward-seat availability:
+avios flights LON ABZ --date 2026-11-05
+avios flights LON ABZ --date 2026-11-05 --return-date 2026-11-12
+avios flights LON ABZ --month 2026-11 --cabin economy --cabin business
+avios flights LON ABZ --month 2026-11 --return-month 2026-12 --json
 ```
 
-Add `--json` to `accounts`, `balance`, `transactions`, `pending` or `whoami` for
-scriptable output. With a single account, `balance` keeps the individual/household
-breakdown.
+Add `--json` to `accounts`, `balance`, `transactions`, `pending`, `whoami`, or
+`flights` for scriptable output. With a single account, `balance` keeps the
+individual/household breakdown.
 
 ## TUI
 
@@ -115,9 +128,19 @@ breakdown.
 avios tui
 ```
 
-A full-screen dashboard across all your accounts: a combined balance header (with a
-per-programme breakdown) and a scrollable transactions table with a Programme column,
-merged newest-first. Press `r` to refresh, `q` to quit.
+A tabbed full-screen application:
+
+- **Dashboard** — combined balance header and transactions across every account.
+- **Reward Flights** — BA date/calendar search with optional reverse-route return,
+  cabin/passenger controls, and independent outbound/inbound result tables.
+
+Press `r` to refresh the dashboard and `q` to quit. Reward searches run only when
+you press Search or Enter.
+
+Reward search is an unofficial, availability-only view. It currently supports
+direct BA flights, three-letter airport/city codes, and seat counts by cabin. It
+does not price, book, or show taxes/fees or connecting flights. Return journeys
+are two independent one-way searches.
 
 ## Roadmap
 
@@ -128,7 +151,7 @@ merged newest-first. Press `r` to refresh, `q` to quit.
 - [x] CLI commands
 - [x] Textual TUI dashboard
 - [x] Multiple accounts (BA, Iberia, Aer Lingus, Finnair) with combined views
-- [ ] Reward-flight **availability** search _(coming soon — needs a British Airways capture)_
+- [x] British Airways reward-flight **availability** search (CLI + TUI)
 
 ## Development
 

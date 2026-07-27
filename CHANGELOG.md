@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-27
+
+### Added
+- **British Airways reward-flight availability.** `avios flights ORIGIN DEST`
+  supports exact-date and month-calendar searches, cabin/passenger filters,
+  available-only output by default, `--show-unavailable`, and scriptable JSON.
+- Return journeys run two independent one-way searches with the route reversed
+  for the inbound leg.
+- Typed reward calendar, day, flight, and cabin-availability models plus an
+  isolated parser for avios.com's authenticated React Server Components stream.
+- The Textual app now has Dashboard and Reward Flights tabs. The search tab keeps
+  network work off the event loop and renders outbound/inbound results separately.
+
+### Changed
+- BA browser-assisted login warms the separate `spend-avios` flight-search app
+  before saving cookies.
+
+### Security
+- Reward-search action tokens from the private RSC response are ignored and never
+  stored; tests use a small sanitized fixture rather than the captured HAR.
+
 ## [0.3.0] - 2026-07-27
 
 ### Added
@@ -153,7 +174,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/alexechoi/avios-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/alexechoi/avios-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/alexechoi/avios-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/alexechoi/avios-cli/compare/v0.1.6...v0.2.0
