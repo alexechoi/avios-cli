@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 from avios import __version__
 from avios.accounts import Account, AccountStore
+from avios.aggregate import AccountBalance, TaggedTransaction
 from avios.auth import ImportResult, LoginError
 from avios.cli import app
 from avios.models import Balance, Overview, Profile, Transaction
@@ -89,6 +90,60 @@ def fake_client(account_store: AccountStore, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
 
 
+@pytest.fixture
+def two_accounts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> AccountStore:
+    """An isolated store with two logged-in accounts (BA + Iberia)."""
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    store = AccountStore()
+    store.save(Account.from_programme(get_programme("ba"), cookies=[{"name": "s", "value": "1"}]))
+    store.save(
+        Account.from_programme(get_programme("iberia"), cookies=[{"name": "s", "value": "2"}])
+    )
+    return store
+
+
+def _fake_all_balances(accounts: list[Account], *, settings: Any = None) -> list[AccountBalance]:
+    return [
+        AccountBalance(a, Balance(balance=100, individual=100, household=200)) for a in accounts
+    ]
+
+
+def _fake_merged(
+    accounts: list[Account], *, limit_per: int = 50, settings: Any = None
+) -> list[TaggedTransaction]:
+    out: list[TaggedTransaction] = []
+    for a in accounts:
+        out.append(
+            TaggedTransaction(
+                a,
+                Transaction.model_validate(
+                    {"dateProcessed": "2026-07-01T09:00:00Z", "description": "UBER", "amount": 100}
+                ),
+            )
+        )
+        out.append(
+            TaggedTransaction(
+                a,
+                Transaction.model_validate(
+                    {
+                        "dateProcessed": "2026-06-01T09:00:00Z",
+                        "description": "Deliveroo",
+                        "amount": 50,
+                    }
+                ),
+            )
+        )
+    out.sort(key=lambda t: t.transaction.date_processed or "", reverse=True)
+    return out
+
+
+@pytest.fixture
+def fake_aggregate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("avios.aggregate.all_balances", _fake_all_balances)
+    monkeypatch.setattr("avios.aggregate.merged_transactions", _fake_merged)
+    monkeypatch.setattr("avios.aggregate.merged_pending", lambda accounts, *, settings=None: [])
+
+
 # -- version / help ----------------------------------------------------------
 def test_version() -> None:
     result = runner.invoke(app, ["--version"])
@@ -101,32 +156,88 @@ def test_no_args_shows_help() -> None:
     assert "Usage" in result.stdout
 
 
-# -- data commands -----------------------------------------------------------
-def test_balance_table(fake_client: None) -> None:
+# -- data commands (single account) ------------------------------------------
+def test_balance_single_shows_detail(account_store: AccountStore, fake_aggregate: None) -> None:
     result = runner.invoke(app, ["balance"])
     assert result.exit_code == 0
-    assert "100" in result.stdout
+    out = " ".join(result.stdout.split())
+    assert "100" in out
+    assert "Household" in out  # single-account view keeps the detail breakdown
 
 
-def test_balance_json(fake_client: None) -> None:
+def test_balance_json(account_store: AccountStore, fake_aggregate: None) -> None:
     result = runner.invoke(app, ["balance", "--json"])
     assert result.exit_code == 0
     assert '"balance"' in result.stdout
-    assert '"household"' in result.stdout
+    assert '"programme"' in result.stdout
+    assert '"slug"' in result.stdout
 
 
-def test_transactions_respects_limit(fake_client: None) -> None:
+def test_transactions_respects_limit(account_store: AccountStore, fake_aggregate: None) -> None:
     result = runner.invoke(app, ["transactions", "--limit", "1"])
     assert result.exit_code == 0
     assert "2026-07-01" in result.stdout
     assert "2026-06-01" not in result.stdout
 
 
-def test_transactions_json(fake_client: None) -> None:
+def test_transactions_single_has_no_programme_column(
+    account_store: AccountStore, fake_aggregate: None
+) -> None:
+    result = runner.invoke(app, ["transactions"])
+    assert result.exit_code == 0
+    assert "Programme" not in result.stdout  # only shown when >1 account
+
+
+def test_transactions_json(account_store: AccountStore, fake_aggregate: None) -> None:
     result = runner.invoke(app, ["transactions", "--json"])
     assert result.exit_code == 0
     assert '"amount"' in result.stdout
     assert '"dateProcessed"' in result.stdout
+    assert '"programme"' in result.stdout
+
+
+# -- data commands (multiple accounts / combined) ----------------------------
+def test_balance_combined_across_accounts(two_accounts: AccountStore, fake_aggregate: None) -> None:
+    result = runner.invoke(app, ["balance"])
+    assert result.exit_code == 0
+    out = " ".join(result.stdout.split())
+    assert "British Airways" in out
+    assert "Iberia" in out
+    assert "Combined" in out
+    assert "200" in out  # 100 + 100
+
+
+def test_balance_account_filter(two_accounts: AccountStore, fake_aggregate: None) -> None:
+    result = runner.invoke(app, ["balance", "--account", "iberia"])
+    assert result.exit_code == 0
+    out = " ".join(result.stdout.split())
+    # Filtered to one account -> single detailed view, no Combined row.
+    assert "Combined" not in out
+
+
+def test_balance_unknown_account(two_accounts: AccountStore, fake_aggregate: None) -> None:
+    result = runner.invoke(app, ["balance", "--account", "nope"])
+    assert result.exit_code == 1
+
+
+def test_accounts_lists_roster(two_accounts: AccountStore, fake_aggregate: None) -> None:
+    result = runner.invoke(app, ["accounts"])
+    assert result.exit_code == 0
+    out = " ".join(result.stdout.split())
+    assert "British Airways" in out
+    assert "iberia" in out  # slug column
+    assert "Combined" in out
+
+
+def test_transactions_merged_shows_programme_column(
+    two_accounts: AccountStore, fake_aggregate: None
+) -> None:
+    result = runner.invoke(app, ["transactions"])
+    assert result.exit_code == 0
+    out = " ".join(result.stdout.split())
+    assert "Programme" in out
+    assert "British Airways" in out
+    assert "Iberia" in out
 
 
 def test_whoami(fake_client: None) -> None:
@@ -151,24 +262,44 @@ def test_no_accounts_prompts_login(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert "Not logged in" in result.stdout
 
 
-def test_not_authenticated(account_store: AccountStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_balance_shows_per_account_error_without_crashing(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A single expired account is captured by the aggregation layer and shown
+    # inline (exit 0), so one bad account never hides the others.
     class Client(FakeClient):
         def get_balance(self) -> Balance:
+            raise SessionExpired("session expired")
+
+    monkeypatch.setattr("avios.aggregate.AviosClient", Client)
+    result = runner.invoke(app, ["balance"])
+    assert result.exit_code == 0
+    assert "expired" in result.stdout.lower()
+
+
+def test_whoami_not_authenticated(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Client-based commands still propagate auth errors to friendly exit codes.
+    class Client(FakeClient):
+        def get_profile(self) -> Profile:
             raise NotAuthenticated
 
     monkeypatch.setattr("avios.cli.AviosClient", Client)
-    result = runner.invoke(app, ["balance"])
+    result = runner.invoke(app, ["whoami"])
     assert result.exit_code == 1
     assert "Not logged in" in result.stdout
 
 
-def test_session_expired(account_store: AccountStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_whoami_session_expired(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class Client(FakeClient):
-        def get_balance(self) -> Balance:
+        def get_profile(self) -> Profile:
             raise SessionExpired
 
     monkeypatch.setattr("avios.cli.AviosClient", Client)
-    result = runner.invoke(app, ["balance"])
+    result = runner.invoke(app, ["whoami"])
     assert result.exit_code == 2
     assert "Session expired" in result.stdout
 
