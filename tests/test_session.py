@@ -84,3 +84,13 @@ def test_get_json_raises_on_expired_session(settings: Settings, status: int) -> 
     session.save_cookies(AVIOS_COOKIE)
     with pytest.raises(SessionExpired):
         session.get_json("/manage-avios/api/user/current/balance")
+
+
+def test_get_json_timeout_is_session_expired(settings: Settings) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out", request=request)
+
+    session = _session(settings, httpx.MockTransport(handler))
+    session.save_cookies(AVIOS_COOKIE)
+    with pytest.raises(SessionExpired, match="timed out"):
+        session.get_json("/shell/api/users/current/accounts")

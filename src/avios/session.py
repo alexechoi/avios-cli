@@ -111,10 +111,16 @@ class Session:
         """GET ``path`` and return parsed JSON.
 
         A redirect to the auth gateway (301/302) or a 401 means the session is no
-        longer valid, surfaced as :class:`SessionExpired`.
+        longer valid, surfaced as :class:`SessionExpired`. avios.com also *hangs*
+        requests from an expired session, so a timeout is treated the same way.
         """
-        with self.client() as client:
-            response = client.get(path)
+        try:
+            with self.client() as client:
+                response = client.get(path)
+        except httpx.TimeoutException as exc:
+            raise SessionExpired(
+                "Request timed out — your session has probably expired. Run `avios login` again."
+            ) from exc
         if response.status_code in (301, 302, 401):
             raise SessionExpired("Session expired. Run `avios login` again.")
         response.raise_for_status()
