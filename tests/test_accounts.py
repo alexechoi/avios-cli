@@ -36,6 +36,36 @@ def test_save_and_list_round_trip(settings: Settings) -> None:
     assert aerlingus.cookies == EI_COOKIE
 
 
+def test_finnair_token_round_trip_and_client(settings: Settings) -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["token"] = request.headers.get("oauth_token", "")
+        seen["api_key"] = request.headers.get("x-api-key", "")
+        seen["host"] = request.url.host
+        return httpx.Response(200, json={"profile": {"awardPoints": 42}})
+
+    programme = get_programme("finnair")
+    account = Account.from_programme(programme)
+    account.token = "finnair-token"
+    account.api_key = "finnair-api-key"
+    store = AccountStore(settings)
+    store.save(account)
+
+    loaded = store.get("finnair")
+    assert loaded is not None
+    assert loaded.backend == "finnair"
+    assert loaded.token == "finnair-token"
+    assert loaded.api_key == "finnair-api-key"
+    client = loaded.client(settings, transport=httpx.MockTransport(handler))
+    assert client.get_balance().balance == 42
+    assert seen == {
+        "token": "finnair-token",
+        "api_key": "finnair-api-key",
+        "host": "api.finnair.com",
+    }
+
+
 def test_account_file_is_private(settings: Settings) -> None:
     store = AccountStore(settings)
     store.save(Account.from_programme(get_programme("ba"), cookies=BA_COOKIE))

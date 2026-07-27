@@ -4,13 +4,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
-A **CLI and TUI for [avios.com](https://www.avios.com)** — check your Avios balance,
-browse your transactions and manage your account without leaving the terminal.
+A **CLI and TUI for your Avios programmes** — check balances and browse transactions
+without leaving the terminal. British Airways and Iberia use avios.com; Finnair Plus
+uses Finnair's own OAuth and loyalty API.
 
 > ⚠️ **Unofficial.** This project is not affiliated with, authorised by, or endorsed by
-> Avios, British Airways or IAG Loyalty. It drives the same private endpoints the
-> avios.com website uses, with your own logged-in session. Use at your own risk; it may
-> break at any time and may be against the provider's terms of service.
+> Avios, British Airways, Finnair or IAG Loyalty. It drives the same private endpoints
+> the providers' websites use, with your own logged-in session. Use at your own risk;
+> it may break at any time and may be against the provider's terms of service.
 
 ![avios TUI dashboard](docs/dashboard.svg)
 
@@ -49,6 +50,7 @@ on the dashboard. It needs the **`login` extra**:
 
 ```bash
 uvx --from 'avios-cli[login]' avios login
+uvx --from 'avios-cli[login]' avios login finnair
 ```
 
 It launches your installed **Google Chrome** (no extra download). If you don't have
@@ -78,8 +80,14 @@ browser. Use `--from-browser` instead: log into avios.com in your normal Chrome
 (you'll get one normal captcha), then run
 `uvx --from 'avios-cli[login]' avios login --from-browser`.
 
-Your session cookie is stored at `~/.config/avios/state.json` (mode `600`). It
-expires after ~a day; just run `avios login` again. Run `avios logout` to remove it.
+Finnair uses a different CAS/OAuth flow. `avios login finnair` opens the Finnair Plus
+balance page, lets you complete password and MFA in the real browser, and captures the
+OAuth session from the authenticated loyalty request. `--from-browser` is not available
+for Finnair because browser-cookie import cannot read that token.
+
+Each programme session is stored at `~/.config/avios/accounts/<programme>.json`
+(mode `600`). Sessions expire; just log in to that programme again. Use
+`avios logout <programme>` for one account or `avios logout` for all accounts.
 
 ## Usage
 
@@ -90,10 +98,11 @@ avios pending                  # pending Avios
 avios overview                 # dashboard summary
 avios whoami                   # name, tier, membership, email
 avios raw /shell/api/users/current/accounts   # hit any endpoint directly
+
 ```
 
 Add `--json` to `balance`, `transactions`, `pending` or `whoami` for scriptable
-output. Non-BA Avios programmes can set `AVIOS_OPCO` (default `BAEC`).
+output.
 
 ## TUI
 
@@ -128,8 +137,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow and
 
 ## Security
 
-No passwords are handled or stored — only your session cookie, kept locally at
-`~/.config/avios/state.json` (mode `600`). See [SECURITY.md](SECURITY.md).
+No passwords are handled or stored — only programme session cookies or OAuth tokens,
+kept locally under `~/.config/avios/accounts/` (mode `600`). See
+[SECURITY.md](SECURITY.md).
 
 ## License
 

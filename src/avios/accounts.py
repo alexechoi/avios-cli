@@ -18,6 +18,8 @@ from avios.programmes import DEFAULT_PROGRAMME, Programme, get_programme
 if TYPE_CHECKING:  # avoid an import cycle at runtime
     import httpx
 
+    from avios.client import AviosClient
+    from avios.finnair import FinnairClient
     from avios.session import Session
 
 
@@ -30,6 +32,9 @@ class Account:
     base_url: str
     name: str = ""
     cookies: list[dict[str, Any]] = field(default_factory=list)
+    backend: str = "avios"
+    token: str | None = None
+    api_key: str | None = None
 
     @classmethod
     def from_programme(
@@ -45,6 +50,7 @@ class Account:
             base_url=programme.base_url,
             name=name or programme.name,
             cookies=cookies or [],
+            backend=programme.backend,
         )
 
     def session(
@@ -53,6 +59,8 @@ class Account:
         """Build a :class:`~avios.session.Session` bound to this account."""
         from avios.session import Session
 
+        if self.backend != "avios":
+            raise ValueError(f"{self.name or self.slug} does not use an avios.com cookie session")
         return Session(
             settings,
             opco=self.opco,
@@ -60,6 +68,29 @@ class Account:
             cookies=self.cookies,
             transport=transport,
         )
+
+    def client(
+        self,
+        settings: Settings | None = None,
+        *,
+        transport: httpx.BaseTransport | None = None,
+    ) -> AviosClient | FinnairClient:
+        """Build the API client appropriate for this programme's backend."""
+        if self.backend == "finnair":
+            from avios.finnair import FinnairClient, FinnairSession
+
+            return FinnairClient(
+                FinnairSession(
+                    self.token or "",
+                    self.api_key or "",
+                    settings,
+                    transport=transport,
+                )
+            )
+
+        from avios.client import AviosClient
+
+        return AviosClient(self.session(settings, transport=transport))
 
 
 class AccountStore:
@@ -96,6 +127,9 @@ class AccountStore:
             base_url=data["base_url"],
             name=data.get("name", ""),
             cookies=data.get("cookies", []),
+            backend=data.get("backend", "avios"),
+            token=data.get("token"),
+            api_key=data.get("api_key"),
         )
 
     def list(self) -> list[Account]:
@@ -124,6 +158,9 @@ class AccountStore:
                     "base_url": account.base_url,
                     "name": account.name,
                     "cookies": account.cookies,
+                    "backend": account.backend,
+                    "token": account.token,
+                    "api_key": account.api_key,
                 }
             )
         )

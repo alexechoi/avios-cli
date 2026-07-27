@@ -22,6 +22,7 @@ from avios.accounts import Account, AccountStore
 from avios.aggregate import AccountBalance, TaggedTransaction
 from avios.auth import LoginError, import_from_browser, login_via_browser
 from avios.client import AviosClient
+from avios.finnair import login_finnair_via_browser
 from avios.models import Transaction
 from avios.programmes import get_programme, programme_slugs
 from avios.session import NotAuthenticated, SessionExpired
@@ -132,9 +133,23 @@ def login(
         console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(1) from exc
 
-    where = ""
     try:
-        if from_browser:
+        if prog.backend == "finnair":
+            if from_browser:
+                raise LoginError(
+                    "Finnair uses an OAuth token rather than browser cookies. "
+                    "Run `avios login finnair` without --from-browser."
+                )
+            console.print(
+                "Opening a browser — log in to [bold]Finnair Plus[/] and complete MFA. "
+                "Keep the window open; the OAuth session is captured automatically."
+            )
+            credentials = login_finnair_via_browser(headless=headless)
+            account = Account.from_programme(prog)
+            account.token = credentials.token
+            account.api_key = credentials.api_key
+            saved_label = "OAuth session"
+        elif from_browser:
             result = import_from_browser(prog, browser=browser, profile=profile)
             where = f" from {browser} profile '{result.profile}'" if result.profile else ""
             if not result.authenticated:
@@ -147,22 +162,24 @@ def login(
                     "[bold]--profile[/], or use [bold]avios login[/] (browser)."
                 )
                 raise typer.Exit(2)
-            cookies = result.cookies
+            account = Account.from_programme(prog, cookies=result.cookies)
+            saved_label = f"{result.count} cookie(s){where}"
         else:
             console.print(
                 f"Opening a browser — log in to [bold]{prog.name}[/] (password, captcha, "
                 "SMS code). Keep the window open; it captures your session automatically."
             )
             cookies = login_via_browser(prog, headless=headless)
+            account = Account.from_programme(prog, cookies=cookies)
+            saved_label = f"{len(cookies)} cookie(s)"
     except LoginError as exc:
         console.print(f"[red]{escape(str(exc))}[/]")
         raise typer.Exit(1) from exc
 
-    account = Account.from_programme(prog, cookies=cookies)
     AccountStore().save(account)
-    console.print(f"[green]Logged in to {prog.name}{where}.[/] Saved {len(cookies)} cookie(s).")
+    console.print(f"[green]Logged in to {prog.name}.[/] Saved {saved_label}.")
     try:
-        balance = AviosClient(account.session()).get_balance()
+        balance = account.client().get_balance()
         console.print(f"[green]✓ Works.[/] Balance: [bold cyan]{balance.balance:,}[/] Avios")
     except (NotAuthenticated, SessionExpired, httpx.HTTPError) as exc:
         console.print(f"[yellow]Saved, but a test call failed:[/] {escape(str(exc))}")

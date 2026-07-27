@@ -1,9 +1,8 @@
 """Avios programme presets.
 
-Avios is one currency shared across several loyalty programmes (British Airways
-Executive Club, Iberia Plus, ...). They are the *same* web app served from
-``www.avios.com``; a programme is distinguished by the ``x-avios-opco`` header and
-the Auth0 tenant you log in through. A user holds one account per programme.
+Most Avios programmes use the shared ``www.avios.com`` app and are distinguished
+by the ``x-avios-opco`` header. Finnair Plus is the exception: it has its own
+CAS/OAuth login and loyalty API, represented by the ``finnair`` backend.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ class Programme:
     opco: str  # x-avios-opco header value (BAEC, IBP, ...)
     base_url: str = AVIOS_BASE_URL
     login_url: str = AVIOS_BASE_URL  # where the browser login starts
+    backend: str = "avios"
 
 
 PROGRAMMES: dict[str, Programme] = {
@@ -43,6 +43,14 @@ PROGRAMMES: dict[str, Programme] = {
         name="Aer Lingus",
         opco="EI",
         login_url=AVIOS_BASE_URL,
+    ),
+    "finnair": Programme(
+        slug="finnair",
+        name="Finnair Plus",
+        opco="FINNAIR",
+        base_url="https://api.finnair.com",
+        login_url="https://www.finnair.com/gb-en/my-finnair-plus/balance-and-transactions",
+        backend="finnair",
     ),
 }
 
