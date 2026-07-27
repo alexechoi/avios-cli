@@ -6,6 +6,7 @@ parsing, rendering and error handling without any network or browser.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from avios.cli import app
 from avios.finnair import FinnairCredentials
 from avios.models import Balance, Overview, Profile, Transaction
 from avios.programmes import get_programme
+from avios.rewards import RewardCalendar, RewardSearchQuery
 from avios.session import NotAuthenticated, SessionExpired
 
 runner = CliRunner()
@@ -69,6 +71,57 @@ class FakeClient:
                     "name": "Alex Choi",
                     "https://avios.com/customer_tier_name": "Gold",
                     "https://avios.com/membership_id": "BA123",
+                },
+            }
+        )
+
+    def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar:
+        day = f"{query.month}-05"
+        return RewardCalendar.model_validate(
+            {
+                "origin": query.origin,
+                "destination": query.destination,
+                "month": query.month,
+                "originCityName": "London" if query.origin == "LON" else "Aberdeen",
+                "destinationCityName": ("Aberdeen" if query.destination == "ABZ" else "London"),
+                "days": {
+                    day: {
+                        "date": day,
+                        "availabilityLevel": 2,
+                        "flights": [
+                            {
+                                "departureAirport": (
+                                    "LHR" if query.origin == "LON" else query.origin
+                                ),
+                                "arrivalAirport": query.destination,
+                                "departureTime": f"{day}T06:35:00",
+                                "arrivalTime": f"{day}T08:10:00",
+                                "duration": 95,
+                                "direct": True,
+                                "peak": False,
+                                "marketing": {"carrier": "BA", "flightNumber": "1300"},
+                                "availability": [
+                                    {
+                                        "cabin": "C",
+                                        "rbd": "U",
+                                        "state": "9",
+                                        "seatsAvailable": 9,
+                                    },
+                                    {
+                                        "cabin": "M",
+                                        "rbd": "X",
+                                        "state": "C",
+                                        "seatsAvailable": 0,
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    f"{query.month}-06": {
+                        "date": f"{query.month}-06",
+                        "availabilityLevel": 0,
+                        "flights": [],
+                    },
                 },
             }
         )
@@ -253,6 +306,129 @@ def test_raw(fake_client: None) -> None:
     result = runner.invoke(app, ["raw", "/x"])
     assert result.exit_code == 0
     assert '"path"' in result.stdout
+
+
+# -- reward flights ----------------------------------------------------------
+def test_flights_exact_date_available_only(account_store: AccountStore, fake_client: None) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "flights",
+            "LON",
+            "ABZ",
+            "--date",
+            "2099-11-05",
+            "--cabin",
+            "business",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Outbound" in result.stdout
+    assert "LON → ABZ" in result.stdout
+    assert "BA1300" in result.stdout
+    assert "9" in result.stdout
+
+
+def test_flights_calendar_hides_unavailable_days(
+    account_store: AccountStore, fake_client: None
+) -> None:
+    result = runner.invoke(app, ["flights", "LON", "ABZ", "--month", "2099-11"])
+    assert result.exit_code == 0
+    assert "2099-11-05" in result.stdout
+    assert "2099-11-06" not in result.stdout
+    assert "1 flight" in result.stdout
+
+
+def test_flights_calendar_can_show_unavailable(
+    account_store: AccountStore, fake_client: None
+) -> None:
+    result = runner.invoke(
+        app, ["flights", "LON", "ABZ", "--month", "2099-11", "--show-unavailable"]
+    )
+    assert result.exit_code == 0
+    assert "2099-11-05" in result.stdout
+    assert "2099-11-06" in result.stdout
+
+
+def test_flights_return_reverses_route(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[RewardSearchQuery] = []
+
+    class RecordingClient(FakeClient):
+        def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar:
+            calls.append(query)
+            return super().search_reward_calendar(query)
+
+    monkeypatch.setattr("avios.cli.AviosClient", RecordingClient)
+    result = runner.invoke(
+        app,
+        [
+            "flights",
+            "LON",
+            "ABZ",
+            "--date",
+            "2099-11-05",
+            "--return-date",
+            "2099-12-05",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Outbound" in result.stdout and "Inbound" in result.stdout
+    assert [(call.origin, call.destination) for call in calls] == [
+        ("LON", "ABZ"),
+        ("ABZ", "LON"),
+    ]
+
+
+def test_flights_json_keeps_full_typed_result(
+    account_store: AccountStore, fake_client: None
+) -> None:
+    result = runner.invoke(
+        app,
+        ["flights", "LON", "ABZ", "--date", "2099-11-05", "--json"],
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["journeyType"] == "one-way"
+    assert data["mode"] == "date"
+    assert data["inbound"] is None
+    flight = data["outbound"]["days"]["2099-11-05"]["flights"][0]
+    assert flight["marketing"]["flightNumber"] == "1300"
+    assert len(flight["availability"]) == 2
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["flights", "LON", "ABZ"],
+        ["flights", "LON", "ABZ", "--date", "2099-11-05", "--month", "2099-11"],
+        ["flights", "LON", "ABZ", "--month", "2099-11", "--return-date", "2099-11-05"],
+        ["flights", "LON", "ABZ", "--date", "2099-11-05", "--cabin", "galley"],
+        [
+            "flights",
+            "LON",
+            "ABZ",
+            "--date",
+            "2099-11-05",
+            "--return-date",
+            "2099-10-05",
+        ],
+    ],
+)
+def test_flights_rejects_invalid_arguments(
+    account_store: AccountStore, fake_client: None, arguments: list[str]
+) -> None:
+    result = runner.invoke(app, arguments)
+    assert result.exit_code == 2
+
+
+def test_flights_requires_ba_account(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    result = runner.invoke(app, ["flights", "LON", "ABZ", "--month", "2099-11"])
+    assert result.exit_code == 1
+    assert "Not logged in" in result.stdout
+    assert "avios login" in result.stdout
 
 
 # -- error handling ----------------------------------------------------------

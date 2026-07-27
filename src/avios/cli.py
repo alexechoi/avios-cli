@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date as Date
 from typing import Any
 
 import httpx
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
@@ -25,6 +27,15 @@ from avios.client import AviosClient
 from avios.finnair import login_finnair_via_browser
 from avios.models import Transaction
 from avios.programmes import get_programme, programme_slugs
+from avios.rewards import (
+    ALL_CABINS,
+    Cabin,
+    PassengerCounts,
+    RewardCalendar,
+    RewardDay,
+    RewardSearchError,
+    RewardSearchQuery,
+)
 from avios.session import NotAuthenticated, SessionExpired
 
 app = typer.Typer(
@@ -100,6 +111,9 @@ def _handle_errors() -> Iterator[None]:
     except SessionExpired as exc:
         console.print("[red]Session expired.[/] Run [bold]avios login[/] again.")
         raise typer.Exit(2) from exc
+    except RewardSearchError as exc:
+        console.print(f"[red]Reward-flight search failed:[/] {escape(str(exc))}")
+        raise typer.Exit(1) from exc
     except httpx.HTTPError as exc:
         console.print(f"[red]Request failed:[/] {escape(str(exc))}")
         raise typer.Exit(1) from exc
@@ -358,6 +372,279 @@ def pending(account: str | None = ACCOUNT_OPTION, json_out: bool = JSON_OPTION) 
         _print_json([_txn_json(t) for t in tagged])
         return
     _render_tagged_transactions(tagged, "Pending", show_programme=len(accts) > 1)
+
+
+# -- reward-flight search ----------------------------------------------------
+_CABIN_INPUTS = {
+    "economy": Cabin.ECONOMY,
+    "premium-economy": Cabin.PREMIUM_ECONOMY,
+    "premium": Cabin.PREMIUM_ECONOMY,
+    "business": Cabin.BUSINESS,
+    "first": Cabin.FIRST,
+}
+
+
+def _parse_cabins(values: list[str]) -> tuple[Cabin, ...]:
+    if not values:
+        return ALL_CABINS
+    parsed: list[Cabin] = []
+    for value in values:
+        key = value.strip().lower().replace("_", "-").replace(" ", "-")
+        cabin = _CABIN_INPUTS.get(key)
+        if cabin is None:
+            choices = "economy, premium-economy, business, first"
+            raise typer.BadParameter(f"unknown cabin '{value}'; choose from: {choices}")
+        if cabin not in parsed:
+            parsed.append(cabin)
+    return tuple(parsed)
+
+
+def _parse_date(value: str, option: str) -> Date:
+    try:
+        parsed = Date.fromisoformat(value)
+    except ValueError as exc:
+        raise typer.BadParameter("must use YYYY-MM-DD", param_hint=option) from exc
+    if parsed < Date.today():
+        raise typer.BadParameter("cannot be in the past", param_hint=option)
+    return parsed
+
+
+def _validate_month(value: str, option: str) -> str:
+    try:
+        RewardSearchQuery(origin="LON", destination="ABZ", month=value)
+    except ValidationError as exc:
+        message = exc.errors()[0].get("msg", "invalid month")
+        raise typer.BadParameter(str(message), param_hint=option) from exc
+    return value
+
+
+def _reward_query(
+    origin: str,
+    destination: str,
+    month: str,
+    passengers: PassengerCounts,
+    cabins: tuple[Cabin, ...],
+) -> RewardSearchQuery:
+    try:
+        return RewardSearchQuery(
+            origin=origin,
+            destination=destination,
+            month=month,
+            passengers=passengers,
+            cabins=cabins,
+        )
+    except ValidationError as exc:
+        message = exc.errors()[0].get("msg", "invalid reward-flight search")
+        raise typer.BadParameter(str(message)) from exc
+
+
+def _duration_text(minutes: int) -> str:
+    hours, remainder = divmod(minutes, 60)
+    return f"{hours}h {remainder:02d}m" if hours else f"{remainder}m"
+
+
+def _render_reward_day(
+    calendar: RewardCalendar,
+    departure_date: str,
+    cabins: tuple[Cabin, ...],
+    *,
+    title: str,
+    show_unavailable: bool,
+) -> None:
+    day = calendar.day(departure_date)
+    flights = day.flights if show_unavailable else day.available_flights
+    if not flights:
+        console.print(f"[dim]No reward seats found for {title.lower()} on {departure_date}.[/]")
+        return
+
+    table = Table(title=f"{title} · {calendar.origin} → {calendar.destination} · {departure_date}")
+    for column in ("Flight", "Route", "Depart", "Arrive", "Duration"):
+        table.add_column(column)
+    for cabin in cabins:
+        table.add_column(cabin.value, justify="right")
+    table.add_column("Peak")
+
+    for flight in flights:
+        row = [
+            f"{flight.marketing.carrier}{flight.marketing.flight_number}",
+            f"{flight.departure_airport}→{flight.arrival_airport}",
+            flight.departure_time[11:16],
+            flight.arrival_time[11:16],
+            _duration_text(flight.duration),
+        ]
+        for cabin in cabins:
+            seats = flight.seats_for(cabin)
+            row.append(f"[green]{seats}[/]" if seats else "[dim]—[/]")
+        row.append("yes" if flight.peak else "no")
+        table.add_row(*row)
+    console.print(table)
+
+
+def _calendar_cell(calendar_day: RewardDay, cabin: Cabin) -> str:
+    seats = [
+        flight.seats_for(cabin) for flight in calendar_day.flights if flight.seats_for(cabin) > 0
+    ]
+    if not seats:
+        return "[dim]—[/]"
+    count = len(seats)
+    noun = "flight" if count == 1 else "flights"
+    return f"[green]{count} {noun} · up to {max(seats)}[/]"
+
+
+def _render_reward_calendar(
+    calendar: RewardCalendar,
+    cabins: tuple[Cabin, ...],
+    *,
+    title: str,
+    show_unavailable: bool,
+) -> None:
+    days = [
+        day
+        for key, day in sorted(calendar.days.items())
+        if key >= Date.today().isoformat()
+        and (show_unavailable or any(flight.has_availability for flight in day.flights))
+    ]
+    if not days:
+        console.print(f"[dim]No reward seats found for {title.lower()} in {calendar.month}.[/]")
+        return
+
+    table = Table(title=f"{title} · {calendar.origin} → {calendar.destination} · {calendar.month}")
+    table.add_column("Date")
+    for cabin in cabins:
+        table.add_column(cabin.value)
+    for day in days:
+        table.add_row(day.date, *[_calendar_cell(day, cabin) for cabin in cabins])
+    console.print(table)
+
+
+def _calendar_json(calendar: RewardCalendar, departure_date: str | None = None) -> dict[str, Any]:
+    data = calendar.as_dict()
+    if departure_date is not None:
+        data["days"] = {departure_date: calendar.day(departure_date).as_dict()}
+    return data
+
+
+@app.command()
+def flights(
+    origin: str = typer.Argument(..., help="Three-letter origin airport or city code."),
+    destination: str = typer.Argument(..., help="Three-letter destination airport or city code."),
+    departure_date: str | None = typer.Option(
+        None, "--date", help="Exact outbound date (YYYY-MM-DD)."
+    ),
+    month: str | None = typer.Option(None, "--month", help="Outbound calendar month (YYYY-MM)."),
+    return_date: str | None = typer.Option(
+        None, "--return-date", help="Exact return date (YYYY-MM-DD)."
+    ),
+    return_month: str | None = typer.Option(
+        None, "--return-month", help="Return calendar month (YYYY-MM)."
+    ),
+    cabin_values: list[str] | None = typer.Option(
+        None,
+        "--cabin",
+        help="Cabin (repeatable): economy, premium-economy, business, first.",
+    ),
+    adults: int = typer.Option(1, min=1, help="Adult passengers."),
+    young_adults: int = typer.Option(0, min=0, help="Young-adult passengers."),
+    children: int = typer.Option(0, min=0, help="Child passengers."),
+    infants: int = typer.Option(0, min=0, help="Infant passengers."),
+    show_unavailable: bool = typer.Option(
+        False, help="Include scheduled flights or dates with no reward seats."
+    ),
+    json_out: bool = JSON_OPTION,
+) -> None:
+    """Search direct British Airways reward-flight availability."""
+    if (departure_date is None) == (month is None):
+        raise typer.BadParameter("provide exactly one of --date or --month")
+    if return_date is not None and departure_date is None:
+        raise typer.BadParameter("--return-date requires --date")
+    if return_month is not None and month is None:
+        raise typer.BadParameter("--return-month requires --month")
+
+    cabins = _parse_cabins(cabin_values or [])
+    try:
+        passengers = PassengerCounts(
+            adults=adults,
+            young_adults=young_adults,
+            children=children,
+            infants=infants,
+        )
+    except ValidationError as exc:
+        message = exc.errors()[0].get("msg", "invalid passenger counts")
+        raise typer.BadParameter(str(message)) from exc
+
+    exact_outbound: Date | None = None
+    exact_return: Date | None = None
+    if departure_date is not None:
+        exact_outbound = _parse_date(departure_date, "--date")
+        if return_date is not None:
+            exact_return = _parse_date(return_date, "--return-date")
+            if exact_return < exact_outbound:
+                raise typer.BadParameter(
+                    "cannot be earlier than --date", param_hint="--return-date"
+                )
+        outbound_month = exact_outbound.strftime("%Y-%m")
+        inbound_month = exact_return.strftime("%Y-%m") if exact_return else None
+    else:
+        assert month is not None
+        outbound_month = _validate_month(month, "--month")
+        inbound_month = _validate_month(return_month, "--return-month") if return_month else None
+        if inbound_month is not None and inbound_month < outbound_month:
+            raise typer.BadParameter("cannot be earlier than --month", param_hint="--return-month")
+
+    outbound_query = _reward_query(origin, destination, outbound_month, passengers, cabins)
+    inbound_query = (
+        _reward_query(destination, origin, inbound_month, passengers, cabins)
+        if inbound_month is not None
+        else None
+    )
+
+    with _handle_errors():
+        client = _client("ba")
+        outbound = client.search_reward_calendar(outbound_query)
+        inbound = (
+            client.search_reward_calendar(inbound_query) if inbound_query is not None else None
+        )
+
+    if json_out:
+        _print_json(
+            {
+                "journeyType": "return" if inbound is not None else "one-way",
+                "mode": "date" if exact_outbound is not None else "calendar",
+                "passengers": passengers.as_dict(),
+                "cabins": [cabin.value for cabin in cabins],
+                "outbound": _calendar_json(
+                    outbound, exact_outbound.isoformat() if exact_outbound else None
+                ),
+                "inbound": (
+                    _calendar_json(inbound, exact_return.isoformat() if exact_return else None)
+                    if inbound is not None
+                    else None
+                ),
+            }
+        )
+        return
+
+    if exact_outbound is not None:
+        _render_reward_day(
+            outbound,
+            exact_outbound.isoformat(),
+            cabins,
+            title="Outbound",
+            show_unavailable=show_unavailable,
+        )
+        if inbound is not None and exact_return is not None:
+            _render_reward_day(
+                inbound,
+                exact_return.isoformat(),
+                cabins,
+                title="Inbound",
+                show_unavailable=show_unavailable,
+            )
+        return
+
+    _render_reward_calendar(outbound, cabins, title="Outbound", show_unavailable=show_unavailable)
+    if inbound is not None:
+        _render_reward_calendar(inbound, cabins, title="Inbound", show_unavailable=show_unavailable)
 
 
 @app.command()
