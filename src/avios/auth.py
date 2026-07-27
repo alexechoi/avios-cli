@@ -112,12 +112,32 @@ def login_via_browser(
         page = ctx.new_page()
         page.goto(programme.login_url)
         authed = _wait_for_auth(ctx, page, programme.base_url, timeout_ms)
+        if authed and programme.slug == "ba":
+            _warm_ba_reward_search(page, programme.base_url)
         cookies = list(ctx.cookies())
         ctx.close()
 
     if not authed:
         raise LoginError("Timed out waiting for login. Run `avios login` again.")
     return _only_avios(cookies)
+
+
+def _warm_ba_reward_search(page: Any, base_url: str) -> None:
+    """Open BA's separate flight-search app so its session cookies are captured.
+
+    Balance/profile authentication alone does not necessarily initialise the
+    ``spend-avios`` Next.js app. This best-effort navigation runs while the real
+    login browser is already open; failure does not invalidate account login.
+    """
+    try:
+        page.goto(
+            f"{base_url}/en-GB/spend-avios/search-reward-flights",
+            wait_until="domcontentloaded",
+            timeout=60_000,
+        )
+        page.wait_for_timeout(3_000)
+    except Exception:
+        pass
 
 
 def _import_sync_playwright() -> Any:

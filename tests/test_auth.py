@@ -124,8 +124,11 @@ class _FakeRequest:
 
 
 class _FakePage:
-    def goto(self, url: str) -> None:
-        pass
+    def __init__(self) -> None:
+        self.visited: list[str] = []
+
+    def goto(self, url: str, **kwargs: object) -> None:
+        self.visited.append(url)
 
     def wait_for_timeout(self, ms: int) -> None:
         pass
@@ -136,9 +139,10 @@ class _FakeContext:
         self.request = _FakeRequest(ok_after)
         self._cookies = cookies
         self.closed = False
+        self.page = _FakePage()
 
     def new_page(self) -> _FakePage:
-        return _FakePage()
+        return self.page
 
     def cookies(self) -> list[dict[str, str]]:
         return self._cookies
@@ -196,6 +200,7 @@ def test_login_captures_only_after_authenticated(settings: Settings) -> None:
     assert captured == [{"name": "appSession", "value": "x", "domain": "www.avios.com"}]
     assert ctx.closed
     assert ctx.request.calls >= 3  # polled until authenticated, not immediately
+    assert ctx.page.visited[-1].endswith("/en-GB/spend-avios/search-reward-flights")
 
 
 def test_login_times_out_without_returning(settings: Settings) -> None:

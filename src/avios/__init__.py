@@ -1,6 +1,6 @@
 """avios — a CLI and TUI for avios.com.
 
-View your Avios balance, transactions and account details from the terminal.
+View your Avios balance, transactions and reward-flight availability from the terminal.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

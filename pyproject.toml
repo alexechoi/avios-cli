@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "avios-cli"
-description = "A CLI and TUI for avios.com — view your Avios balance and transactions from the terminal."
+description = "A CLI and TUI for Avios balances, transactions, and BA reward-flight availability."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
