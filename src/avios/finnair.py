@@ -20,6 +20,11 @@ from avios.session import NotAuthenticated, SessionExpired
 FINNAIR_API_BASE_URL = "https://api.finnair.com"
 FINNAIR_LOGIN_URL = "https://www.finnair.com/gb-en/my-finnair-plus/balance-and-transactions"
 FINNAIR_PROFILE_PATH = "/d/loyalty-service/legacy/current/api/profile"
+# The loyalty (balance/transactions) endpoints live under this prefix and use a
+# DIFFERENT x-api-key than sibling endpoints such as member-service `getgauth`.
+# Credentials must be captured from a request under this prefix, or the balance
+# call fails with 403 Forbidden (wrong API key).
+FINNAIR_LOYALTY_API_PREFIX = "/d/loyalty-service/legacy/current/api/"
 
 PROFILE_REQUEST: dict[str, Any] = {"profileRequest": {"type": "BASIC", "cache": "USE"}}
 TRANSACTIONS_REQUEST: dict[str, Any] = {"transactionsRequest": {}}
@@ -80,8 +85,16 @@ class FinnairSession:
             raise SessionExpired(
                 "Finnair request timed out. Run `avios login finnair` again."
             ) from exc
-        if response.status_code in (301, 302, 401, 403):
+        if response.status_code in (301, 302, 401):
             raise SessionExpired("Finnair session expired. Run `avios login finnair` again.")
+        if response.status_code == 403:
+            # Not an expired session: usually the wrong API key was captured at login
+            # (the member-service key instead of the loyalty key). Surface it plainly.
+            raise SessionExpired(
+                "Finnair refused the request (403 Forbidden) — the saved API key looks "
+                "wrong; re-run `avios login finnair`. "
+                f"Response: {response.text[:100]}"
+            )
         response.raise_for_status()
         return response.json()
 
@@ -189,6 +202,22 @@ class FinnairClient:
         return self.session.post_json(normalised, {})
 
 
+def _loyalty_credentials(url: str, headers: dict[str, str]) -> FinnairCredentials | None:
+    """Return credentials iff this is a *loyalty* API request carrying both auth headers.
+
+    Only the loyalty endpoints (balance/transactions) carry the API key the client
+    needs. Sibling endpoints like member-service ``getgauth`` use a different
+    x-api-key, so capturing from them yields a key that 403s on the balance call.
+    """
+    if not url.startswith(FINNAIR_API_BASE_URL + FINNAIR_LOYALTY_API_PREFIX):
+        return None
+    token = headers.get("oauth_token")
+    api_key = headers.get("x-api-key")
+    if token and api_key:
+        return FinnairCredentials(token=str(token), api_key=str(api_key))
+    return None
+
+
 def login_finnair_via_browser(
     *,
     settings: Settings | None = None,
@@ -196,11 +225,13 @@ def login_finnair_via_browser(
     timeout_ms: int = LOGIN_TIMEOUT_MS,
     playwright_factory: Any = None,
 ) -> FinnairCredentials:
-    """Capture the OAuth token and API key from the first loyalty API request.
+    """Capture the OAuth token and API key from a loyalty API request.
 
     A real browser completes password and MFA. Capturing the request header is
     more robust than reading page storage because it verifies that both values
-    have reached the loyalty API in the exact form required by later calls.
+    have reached the loyalty API in the exact form required by later calls. Only
+    requests under the loyalty API prefix are used, so we get the API key the
+    balance/transactions endpoints accept (see :func:`_loyalty_credentials`).
     """
     from avios.auth import LoginError, _import_sync_playwright, _open_login_context
 
@@ -214,14 +245,9 @@ def login_finnair_via_browser(
         page = ctx.new_page()
 
         def capture(request: Any) -> None:
-            if not str(request.url).startswith(FINNAIR_API_BASE_URL):
-                return
-            token = request.headers.get("oauth_token")
-            api_key = request.headers.get("x-api-key")
-            if token and api_key:
-                credentials = FinnairCredentials(token=str(token), api_key=str(api_key))
-                if credentials not in captured:
-                    captured.append(credentials)
+            credentials = _loyalty_credentials(str(request.url), request.headers)
+            if credentials is not None and credentials not in captured:
+                captured.append(credentials)
 
         page.on("request", capture)
         page.goto(FINNAIR_LOGIN_URL)
