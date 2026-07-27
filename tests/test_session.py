@@ -75,6 +75,19 @@ def test_get_json_returns_parsed_body(settings: Settings) -> None:
     assert session.get_json("/en-GB/spend-avios/api/avios-balance") == {"balance": 75751}
 
 
+def test_get_text_accepts_params_and_headers(settings: Settings) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["month"] == "11"
+        assert request.headers["rsc"] == "1"
+        return httpx.Response(200, text="rsc payload")
+
+    session = _session(settings, httpx.MockTransport(handler))
+    session.save_cookies(AVIOS_COOKIE)
+    assert (
+        session.get_text("/results", params={"month": "11"}, headers={"rsc": "1"}) == "rsc payload"
+    )
+
+
 @pytest.mark.parametrize("status", [301, 302, 401])
 def test_get_json_raises_on_expired_session(settings: Settings, status: int) -> None:
     def handler(request: httpx.Request) -> httpx.Response:

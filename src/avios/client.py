@@ -11,6 +11,7 @@ from typing import Any
 
 from avios import endpoints
 from avios.models import Balance, Overview, Profile, Transaction
+from avios.rewards import RewardCalendar, RewardSearchQuery, search_reward_calendar
 from avios.session import Session
 
 
@@ -61,6 +62,10 @@ class AviosClient:
     def get_pending_transactions(self) -> list[Transaction]:
         payload = self.session.get_json(endpoints.TRANSACTIONS_PENDING)
         return [Transaction.model_validate(item) for item in _extract_list(payload)]
+
+    def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar:
+        """Search one month of direct BA reward-flight availability."""
+        return search_reward_calendar(self.session, query)
 
     def raw(self, path: str) -> Any:
         """Fetch an arbitrary endpoint (escape hatch), returning parsed JSON."""

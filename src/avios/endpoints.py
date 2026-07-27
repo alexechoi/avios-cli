@@ -20,3 +20,6 @@ OVERVIEW = "/manage-avios/api/user/current/dashboard-overview"
 TRANSACTIONS = "/manage-avios/api/user/current/transactions"
 TRANSACTIONS_PENDING = "/manage-avios/api/user/current/transactions/pending"
 ACCOUNTS = "/shell/api/users/current/accounts"
+
+# Next.js React Server Components route used by the BA reward-flight finder.
+REWARD_FLIGHT_RESULTS = "/en-GB/spend-avios/search-reward-flights/results"

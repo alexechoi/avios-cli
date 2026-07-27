@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -128,16 +129,28 @@ class Session:
             transport=self._transport,
         )
 
-    def get_json(self, path: str) -> Any:
-        """GET ``path`` and return parsed JSON.
-
-        A redirect to the auth gateway (301/302) or a 401 means the session is no
-        longer valid, surfaced as :class:`SessionExpired`. avios.com also *hangs*
-        requests from an expired session, so a timeout is treated the same way.
-        """
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | list[tuple[str, str]] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
+        """Send an authenticated request and apply common session-expiry handling."""
+        query_params: httpx.QueryParams | None
+        if isinstance(params, list):
+            query_params = httpx.QueryParams(tuple(params))
+        else:
+            query_params = httpx.QueryParams(params) if params is not None else None
         try:
             with self.client() as client:
-                response = client.get(path)
+                response = client.request(
+                    method,
+                    path,
+                    params=query_params,
+                    headers=headers,
+                )
         except httpx.TimeoutException as exc:
             raise SessionExpired(
                 "Request timed out — your session has probably expired. Run `avios login` again."
@@ -145,5 +158,25 @@ class Session:
         if response.status_code in (301, 302, 401):
             raise SessionExpired("Session expired. Run `avios login` again.")
         response.raise_for_status()
+        return response
+
+    def get_json(self, path: str) -> Any:
+        """GET ``path`` and return parsed JSON.
+
+        A redirect to the auth gateway (301/302) or a 401 means the session is no
+        longer valid, surfaced as :class:`SessionExpired`. avios.com also *hangs*
+        requests from an expired session, so a timeout is treated the same way.
+        """
+        response = self.request("GET", path)
         ctype = response.headers.get("content-type", "")
         return response.json() if "json" in ctype else response.text
+
+    def get_text(
+        self,
+        path: str,
+        *,
+        params: dict[str, str] | list[tuple[str, str]] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> str:
+        """GET a text endpoint with optional query parameters and request headers."""
+        return self.request("GET", path, params=params, headers=headers).text
