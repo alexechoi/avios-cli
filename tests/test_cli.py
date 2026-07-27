@@ -272,7 +272,8 @@ def test_balance_shows_per_account_error_without_crashing(
         def get_balance(self) -> Balance:
             raise SessionExpired("session expired")
 
-    monkeypatch.setattr("avios.aggregate.AviosClient", Client)
+    # aggregation dispatches through Account.client() (backend-aware).
+    monkeypatch.setattr("avios.accounts.Account.client", lambda self, *a, **k: Client())
     result = runner.invoke(app, ["balance"])
     assert result.exit_code == 0
     assert "expired" in result.stdout.lower()
@@ -312,7 +313,7 @@ def test_login_from_browser(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         "avios.cli.import_from_browser",
         lambda prog, browser="chrome", profile=None: ImportResult(2, "Default", True),
     )
-    monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
+    monkeypatch.setattr("avios.accounts.Account.client", lambda self, *a, **k: FakeClient())
     result = runner.invoke(app, ["login", "iberia", "--from-browser"])
     assert result.exit_code == 0
     out = " ".join(result.stdout.split())  # Rich wraps lines
