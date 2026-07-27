@@ -86,6 +86,25 @@ def test_get_json_raises_on_expired_session(settings: Settings, status: int) -> 
         session.get_json("/manage-avios/api/user/current/balance")
 
 
+def test_account_mode_overrides_opco_and_base_url(settings: Settings) -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["opco"] = request.headers.get("x-avios-opco", "")
+        return httpx.Response(200, json={})
+
+    session = Session(
+        settings,
+        opco="IBP",
+        base_url="https://www.avios.com",
+        cookies=[{"name": "appSession", "value": "z", "domain": "www.avios.com"}],
+        transport=httpx.MockTransport(handler),
+    )
+    session.get_json("/x")
+    assert seen["opco"] == "IBP"
+    assert session.opco == "IBP"
+
+
 def test_get_json_timeout_is_session_expired(settings: Settings) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("read timed out", request=request)
