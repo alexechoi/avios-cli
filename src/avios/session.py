@@ -38,21 +38,41 @@ def cookie_header_from(cookies: list[dict[str, Any]]) -> str:
 
 
 class Session:
-    """Persisted avios session backed by a cookie jar on disk.
+    """A pre-authenticated avios session.
+
+    Two modes:
+
+    - *account mode* — pass ``opco``/``base_url``/``cookies`` (used by multi-account
+      code; cookies live in memory and are persisted by ``AccountStore``).
+    - *legacy mode* — no account args; falls back to ``Settings`` and the single
+      ``state.json`` cookie file.
 
     A ``transport`` may be injected for testing (e.g. ``httpx.MockTransport``).
-    The ``AVIOS_COOKIE`` environment variable, if set, overrides the stored jar
-    with a raw ``Cookie`` header string.
+    The ``AVIOS_COOKIE`` environment variable, if set, overrides the cookie jar.
     """
 
     def __init__(
         self,
         settings: Settings | None = None,
         *,
+        opco: str | None = None,
+        base_url: str | None = None,
+        cookies: list[dict[str, Any]] | None = None,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.settings = settings or get_settings()
+        self._opco = opco
+        self._base_url = base_url
+        self._cookies = cookies  # in-memory jar (account mode); None -> use file
         self._transport = transport
+
+    @property
+    def opco(self) -> str:
+        return self._opco or self.settings.opco
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url or self.settings.base_url
 
     @property
     def state_path(self) -> Path:
@@ -76,7 +96,8 @@ class Session:
         env = os.environ.get("AVIOS_COOKIE")
         if env:
             return env.strip()
-        return cookie_header_from(self.load_cookies())
+        cookies = self._cookies if self._cookies is not None else self.load_cookies()
+        return cookie_header_from(cookies)
 
     def is_authenticated(self) -> bool:
         return bool(self.cookie_header())
@@ -94,13 +115,13 @@ class Session:
         headers = {
             "accept": "application/json, text/plain, */*",
             "user-agent": self.settings.user_agent,
-            "referer": f"{self.settings.base_url}/manage-avios/dashboard",
+            "referer": f"{self.base_url}/manage-avios/dashboard",
             # Required by the manage-avios API (401 without it).
-            "x-avios-opco": self.settings.opco,
+            "x-avios-opco": self.opco,
             "cookie": cookie,
         }
         return httpx.Client(
-            base_url=self.settings.base_url,
+            base_url=self.base_url,
             headers=headers,
             timeout=self.settings.request_timeout,
             follow_redirects=False,
