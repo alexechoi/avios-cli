@@ -91,18 +91,23 @@ Each programme session is stored at `~/.config/avios/accounts/<programme>.json`
 
 ## Usage
 
+Commands span **all logged-in accounts** by default and show a combined total; add
+`--account/-a <programme>` to focus on one.
+
 ```bash
-avios balance                  # total / individual / household Avios
-avios transactions --limit 20  # recent transactions (date, description, Avios, type)
-avios pending                  # pending Avios
+avios accounts                 # every logged-in account: balance + status
+avios balance                  # per-account balances + combined total
+avios transactions --limit 20  # recent transactions, merged across accounts
+avios pending                  # pending Avios, merged across accounts
+avios balance --account iberia # just one programme
 avios overview                 # dashboard summary
 avios whoami                   # name, tier, membership, email
 avios raw /shell/api/users/current/accounts   # hit any endpoint directly
-
 ```
 
-Add `--json` to `balance`, `transactions`, `pending` or `whoami` for scriptable
-output.
+Add `--json` to `accounts`, `balance`, `transactions`, `pending` or `whoami` for
+scriptable output. With a single account, `balance` keeps the individual/household
+breakdown.
 
 ## TUI
 
@@ -110,8 +115,9 @@ output.
 avios tui
 ```
 
-A full-screen dashboard: your balance in the header and a scrollable transactions
-table. Press `r` to refresh, `q` to quit.
+A full-screen dashboard across all your accounts: a combined balance header (with a
+per-programme breakdown) and a scrollable transactions table with a Programme column,
+merged newest-first. Press `r` to refresh, `q` to quit.
 
 ## Roadmap
 
@@ -121,6 +127,7 @@ table. Press `r` to refresh, `q` to quit.
 - [x] Browser-assisted `avios login`
 - [x] CLI commands
 - [x] Textual TUI dashboard
+- [x] Multiple accounts (BA, Iberia, Aer Lingus, Finnair) with combined views
 - [ ] Reward-flight **availability** search _(coming soon — needs a British Airways capture)_
 
 ## Development

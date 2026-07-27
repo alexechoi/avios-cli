@@ -6,10 +6,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-27
+
 ### Added
-- Finnair Plus integration using Finnair's CAS/OAuth browser login and loyalty
-  API, including balance, profile and transaction mapping.
-- Token-backed account storage alongside the existing avios.com cookie accounts.
+- **Multiple accounts, one per programme.** Log into several Avios programmes and
+  keep their sessions side by side: `avios login [programme]` (default `ba`),
+  `avios logout [programme]` (or `avios logout` for all), and a new `avios accounts`
+  roster showing each balance and status. Programmes: British Airways (`ba`),
+  Iberia (`iberia`), Aer Lingus (`aerlingus`), Finnair Plus (`finnair`).
+- **Combined views.** `balance` sums every account into a combined total (a single
+  account keeps the individual/household detail); `transactions`/`pending` merge
+  across accounts newest-first with a Programme column. `--account/-a` filters any
+  data command to one programme.
+- **Multi-account TUI.** `avios tui` shows a combined balance header (per-programme
+  breakdown) and a Programme column, loading every account concurrently.
+- **Finnair Plus** via Finnair's CAS/OAuth browser login + loyalty API (balance,
+  profile, transactions); token-backed account storage alongside cookie accounts.
+- Programme-aware browser login (per-programme login URL + isolated Chrome profile)
+  and a shared, backend-aware aggregation layer (`aggregate.py`) used by the CLI
+  and TUI. Per-account failures are captured, so one expired session never hides
+  the others.
+
+### Changed
+- Sessions are now stored per programme at `~/.config/avios/accounts/<programme>.json`
+  (mode `600`); the old single `state.json` is migrated to `accounts/ba.json` on
+  first run.
 
 ## [0.2.1] - 2026-07-27
 
@@ -132,7 +153,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/alexechoi/avios-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/alexechoi/avios-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/alexechoi/avios-cli/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/alexechoi/avios-cli/compare/v0.1.5...v0.1.6
