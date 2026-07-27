@@ -11,8 +11,10 @@
 - `avios logout` deletes stored sessions. They also expire on the server side.
 - `AVIOS_COOKIE` may be set to supply a cookie via the environment instead of the
   stored file — avoid committing it or storing it in shell history.
-- Reward-flight search sends the same saved BA cookie only to `www.avios.com`.
-  The RSC response's short-lived action tokens are neither exposed nor persisted.
+- Reward-flight search launches the isolated BA Chrome profile in the background;
+  Chrome sends the saved application cookie only to `www.avios.com` and refreshes
+  its own anti-bot cookies. The RSC response's short-lived action tokens are
+  neither exposed nor persisted.
 
 ## Unofficial software
 

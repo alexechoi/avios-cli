@@ -33,6 +33,7 @@ from avios.session import cookie_header_from
 LOGIN_TIMEOUT_MS = 300_000  # 5 minutes to complete password + captcha + MFA
 LOGIN_POLL_MS = 2_000  # how often to check whether the session is authenticated
 SUPPORTED_BROWSERS = ("chrome", "firefox", "edge", "brave", "safari", "chromium")
+BA_REWARD_SEARCH_PATH = "/en-GB/spend-avios/search-reward-flights"
 
 # Chromium-family user-data roots per browser (relative to home), used to discover
 # per-profile cookie databases (Default, "Profile 1", ...).
@@ -108,36 +109,67 @@ def login_via_browser(
     profile_dir = str(settings.config_dir / "chrome-profile" / programme.slug)
 
     with factory() as pw:
-        ctx = _open_login_context(pw, headless=headless, user_data_dir=profile_dir)
+        ctx = _open_login_context(
+            pw,
+            headless=headless,
+            user_data_dir=profile_dir,
+            user_agent=settings.user_agent,
+        )
         page = ctx.new_page()
         page.goto(programme.login_url)
         authed = _wait_for_auth(ctx, page, programme.base_url, timeout_ms)
+        reward_authed = True
         if authed and programme.slug == "ba":
-            _warm_ba_reward_search(page, programme.base_url)
+            reward_authed = _wait_for_ba_reward_auth(
+                ctx,
+                page,
+                programme.base_url,
+                timeout_ms,
+            )
         cookies = list(ctx.cookies())
         ctx.close()
 
     if not authed:
         raise LoginError("Timed out waiting for login. Run `avios login` again.")
+    if not reward_authed:
+        raise LoginError(
+            "British Airways account login succeeded, but reward-flight login did not. "
+            "Run `avios login ba` again, complete the second BA prompt, and keep the "
+            "browser open until this command confirms success."
+        )
     return _only_avios(cookies)
 
 
-def _warm_ba_reward_search(page: Any, base_url: str) -> None:
-    """Open BA's separate flight-search app so its session cookies are captured.
+def _has_ba_reward_session(ctx: Any) -> bool:
+    """Whether BA's separate reward-search application session is present."""
+    names = {
+        str(cookie.get("name", ""))
+        for cookie in ctx.cookies()
+        if "avios.com" in str(cookie.get("domain", ""))
+    }
+    return "__session" in names or any(name.startswith("appSession") for name in names)
 
-    Balance/profile authentication alone does not necessarily initialise the
-    ``spend-avios`` Next.js app. This best-effort navigation runs while the real
-    login browser is already open; failure does not invalidate account login.
-    """
+
+def _wait_for_ba_reward_auth(ctx: Any, page: Any, base_url: str, timeout_ms: int) -> bool:
+    """Open BA's reward app and wait for its separate Auth0 flow to complete."""
     try:
         page.goto(
-            f"{base_url}/en-GB/spend-avios/search-reward-flights",
+            f"{base_url}{BA_REWARD_SEARCH_PATH}",
             wait_until="domcontentloaded",
             timeout=60_000,
         )
-        page.wait_for_timeout(3_000)
     except Exception:
-        pass
+        return False
+
+    for _ in range(max(1, timeout_ms // LOGIN_POLL_MS)):
+        if _has_ba_reward_session(ctx) and page.url.startswith(
+            f"{base_url}{BA_REWARD_SEARCH_PATH}"
+        ):
+            with contextlib.suppress(Exception):
+                if "search reward flights" in page.title().lower():
+                    return True
+        page.wait_for_timeout(LOGIN_POLL_MS)
+    return False
 
 
 def _import_sync_playwright() -> Any:
@@ -177,7 +209,14 @@ def _is_authenticated(ctx: Any, base_url: str) -> bool:
         return False
 
 
-def _open_login_context(pw: Any, *, headless: bool, user_data_dir: str) -> Any:
+def _open_login_context(
+    pw: Any,
+    *,
+    headless: bool,
+    user_data_dir: str,
+    user_agent: str | None = None,
+    background: bool = False,
+) -> Any:
     """Open a browser context for login, tuned to avoid the hCaptcha bot loop.
 
     hCaptcha/Akamai serve endless challenges to obviously-automated browsers, so:
@@ -189,6 +228,14 @@ def _open_login_context(pw: Any, *, headless: bool, user_data_dir: str) -> Any:
     """
     args = ["--disable-blink-features=AutomationControlled"]
     ignore_default_args = ["--enable-automation"]
+    launch_options: dict[str, Any] = {}
+    if background:
+        args.append("--window-position=-32000,-32000")
+        launch_options["viewport"] = {"width": 1280, "height": 900}
+    if headless and user_agent:
+        # Chrome's native headless networking can reach BA's login page, but its
+        # default ``HeadlessChrome`` UA is rejected. Keep the normal Chrome UA.
+        launch_options["user_agent"] = user_agent
     for extra in ({"channel": "chrome"}, {}):
         try:
             return pw.chromium.launch_persistent_context(
@@ -196,6 +243,7 @@ def _open_login_context(pw: Any, *, headless: bool, user_data_dir: str) -> Any:
                 headless=headless,
                 args=args,
                 ignore_default_args=ignore_default_args,
+                **launch_options,
                 **extra,
             )
         except Exception:

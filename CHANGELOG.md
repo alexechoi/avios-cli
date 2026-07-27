@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-27
+
+### Fixed
+- **BA reward-flight searches failed with 403 after a successful login.** The
+  flight finder has a separate Auth0 session and rejects plain HTTP or automated
+  headless requests at Akamai. BA login now waits for the second reward-flight
+  prompt, and searches drive the site's own form in a background Chrome window
+  before parsing the returned RSC availability.
+- Stored Akamai cookies are no longer replayed over Chrome's fresher browser jar,
+  and a transient Next.js shell response is retried once.
+
 ## [0.4.1] - 2026-07-27
 
 ### Fixed
@@ -187,7 +198,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/alexechoi/avios-cli/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/alexechoi/avios-cli/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/alexechoi/avios-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/alexechoi/avios-cli/compare/v0.2.1...v0.3.0

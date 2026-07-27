@@ -89,6 +89,8 @@ class PassengerCounts(RewardModel):
     def infants_need_adults(self) -> PassengerCounts:
         if self.infants > self.adults:
             raise ValueError("infants cannot exceed adults")
+        if self.adults + self.young_adults + self.children + self.infants > 9:
+            raise ValueError("British Airways allows at most 9 travellers")
         return self
 
     def query_items(self) -> list[tuple[str, str]]:
@@ -354,6 +356,17 @@ def search_reward_calendar(session: Session, query: RewardSearchQuery) -> Reward
         "next-url": NEXT_URL,
         "referer": referer,
     }
+
+    if not session.has_custom_transport:
+        payload = _fetch_reward_rsc_via_browser(session, query)
+        try:
+            return parse_reward_rsc(payload, query)
+        except RewardSearchProtocolError:
+            # The Next.js router occasionally returns only its small shell during
+            # rapid consecutive searches. One fresh browser navigation recovers.
+            payload = _fetch_reward_rsc_via_browser(session, query)
+            return parse_reward_rsc(payload, query)
+
     try:
         payload = session.get_text(
             endpoints.REWARD_FLIGHT_RESULTS,
@@ -368,3 +381,150 @@ def search_reward_calendar(session: Session, query: RewardSearchQuery) -> Reward
             ) from exc
         raise
     return parse_reward_rsc(payload, query)
+
+
+def _playwright_cookies(session: Session) -> list[dict[str, Any]]:
+    """Return only app-session cookies safe to seed into the Chrome profile.
+
+    Akamai cookies are bound to browser state and are refreshed by Chrome. Replaying
+    stored ``_abck``/``bm_*`` values over the profile's current jar triggers a 403.
+    """
+    allowed = {
+        "name",
+        "value",
+        "domain",
+        "path",
+        "expires",
+        "httpOnly",
+        "secure",
+        "sameSite",
+        "partitionKey",
+    }
+    normalised: list[dict[str, Any]] = []
+    for stored in session.browser_cookies():
+        name = str(stored.get("name", ""))
+        if name != "__session" and not name.startswith("appSession"):
+            continue
+        cookie = {key: value for key, value in stored.items() if key in allowed}
+        if not cookie.get("name") or not cookie.get("value") or not cookie.get("domain"):
+            continue
+        cookie.setdefault("path", "/")
+        normalised.append(cookie)
+    return normalised
+
+
+def _fetch_reward_rsc_via_browser(
+    session: Session,
+    query: RewardSearchQuery,
+    *,
+    playwright_factory: Any = None,
+    search_driver: Any = None,
+) -> str:
+    """Drive BA's real search form and capture its RSC response through Chrome."""
+    from avios.auth import LoginError, _import_sync_playwright, _open_login_context
+
+    factory = playwright_factory or _import_sync_playwright()
+    driver = search_driver or _drive_reward_search
+    profile_dir = str(session.settings.config_dir / "chrome-profile" / "ba")
+
+    try:
+        with factory() as pw:
+            ctx = _open_login_context(
+                pw,
+                headless=False,
+                user_data_dir=profile_dir,
+                user_agent=session.settings.user_agent,
+                background=True,
+            )
+            try:
+                cookies = _playwright_cookies(session)
+                profile_cookie_names = {str(cookie.get("name", "")) for cookie in ctx.cookies()}
+                profile_has_reward_session = "__session" in profile_cookie_names or any(
+                    name.startswith("appSession") for name in profile_cookie_names
+                )
+                if cookies and not profile_has_reward_session:
+                    ctx.add_cookies(cookies)
+                page = ctx.new_page()
+                body = driver(page, session.base_url, query)
+            finally:
+                ctx.close()
+    except LoginError as exc:
+        raise RewardSearchAccessError(str(exc)) from exc
+    except RewardSearchAccessError:
+        raise
+    except Exception as exc:
+        raise RewardSearchAccessError(
+            "Chrome could not fetch British Airways reward flights. "
+            "Run `avios login ba` again, then retry."
+        ) from exc
+
+    if not isinstance(body, str):
+        raise RewardSearchProtocolError("Chrome returned a non-text reward-flight response")
+    return body
+
+
+def _select_airport(page: Any, field: str, code: str) -> None:
+    airport = page.locator(f'input[name="{field}"]')
+    if airport.input_value().rstrip().endswith(f"({code})"):
+        return
+    airport.fill(code)
+    page.get_by_test_id(f"{field}-{code}-airport-option").click(timeout=20_000)
+
+
+def _set_passengers(page: Any, passengers: PassengerCounts) -> None:
+    increments = {
+        "Adults": passengers.adults - 1,
+        "Young Adults": passengers.young_adults,
+        "Children": passengers.children,
+        "Infants": passengers.infants,
+    }
+    if not any(increments.values()):
+        return
+    selector = page.get_by_test_id("passenger number select")
+    selector.click()
+    for label, count in increments.items():
+        for _ in range(count):
+            page.get_by_test_id(f"{label}-plus").click()
+    selector.click()
+
+
+def _drive_reward_search(page: Any, base_url: str, query: RewardSearchQuery) -> str:
+    """Use the site's form so Next.js and Akamai generate valid request state."""
+    from avios.auth import BA_REWARD_SEARCH_PATH
+
+    landing = page.goto(
+        f"{base_url}{BA_REWARD_SEARCH_PATH}",
+        wait_until="domcontentloaded",
+        timeout=60_000,
+    )
+    if landing is not None and landing.status == 403:
+        raise RewardSearchAccessError(
+            "British Airways rejected the Chrome reward-search session. Run `avios login ba` again."
+        )
+    if "accounts.britishairways.com" in page.url:
+        raise RewardSearchAccessError(
+            "British Airways reward-flight login is incomplete. Run `avios login ba` "
+            "again and complete the second BA prompt."
+        )
+    page.wait_for_timeout(1_500)
+    page.get_by_role("tab", name="One Way").click()
+    _select_airport(page, "origin", query.origin)
+    _select_airport(page, "destination", query.destination)
+    _set_passengers(page, query.passengers)
+
+    with page.expect_response(
+        lambda response: (
+            endpoints.REWARD_FLIGHT_RESULTS in response.url and response.request.method == "GET"
+        ),
+        timeout=60_000,
+    ) as response_info:
+        page.get_by_role("button", name="Search", exact=True).click()
+    response = response_info.value
+    body = str(response.text())
+    if response.status in (401, 403):
+        raise RewardSearchAccessError(
+            "British Airways rejected the Chrome reward-search session. Run `avios login ba` again."
+        )
+    if response.status >= 400:
+        raise RewardSearchError(f"British Airways reward search returned HTTP {response.status}")
+    return body
