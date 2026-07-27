@@ -6,6 +6,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Finnair Plus integration using Finnair's CAS/OAuth browser login and loyalty
+  API, including balance, profile and transaction mapping.
+- Token-backed account storage alongside the existing avios.com cookie accounts.
+
 ## [0.2.1] - 2026-07-27
 
 ### Fixed

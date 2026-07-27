@@ -33,17 +33,17 @@ def _txn(date: str, amount: int) -> Transaction:
 
 
 class _FakeClient:
-    """Stand-in whose responses are keyed by the session's opco."""
+    """Stand-in whose responses are keyed by the account's opco."""
 
     def __init__(
         self,
-        session: Any,
+        opco: str,
         *,
         balances: dict[str, int],
         errors: frozenset[str],
         txns: dict[str, list[Transaction]],
     ) -> None:
-        self._opco = session.opco
+        self._opco = opco
         self._balances = balances
         self._errors = errors
         self._txns = txns
@@ -73,12 +73,11 @@ def patch_clients(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
         errors: frozenset[str] = frozenset(),
         txns: dict[str, list[Transaction]] | None = None,
     ) -> None:
-        monkeypatch.setattr(
-            "avios.aggregate.AviosClient",
-            lambda session: _FakeClient(
-                session, balances=balances or {}, errors=errors, txns=txns or {}
-            ),
-        )
+        def fake_client(self: Account, settings: Any = None, **_: Any) -> _FakeClient:
+            return _FakeClient(self.opco, balances=balances or {}, errors=errors, txns=txns or {})
+
+        # aggregate dispatches through Account.client() (backend-aware), so patch there.
+        monkeypatch.setattr("avios.accounts.Account.client", fake_client)
 
     return _apply
 

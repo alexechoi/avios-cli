@@ -11,15 +11,23 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Protocol, TypeVar
 
 import httpx
 
 from avios.accounts import Account
-from avios.client import AviosClient
 from avios.config import Settings
 from avios.models import Balance, Transaction
 from avios.session import NotAuthenticated, SessionExpired
+
+
+class _Client(Protocol):
+    """The client surface aggregation needs (satisfied by AviosClient and FinnairClient)."""
+
+    def get_balance(self) -> Balance: ...
+    def get_transactions(self, limit: int = 50) -> list[Transaction]: ...
+    def get_pending_transactions(self) -> list[Transaction]: ...
+
 
 # Per-account failures we tolerate (captured on the result, not raised).
 _FETCH_ERRORS = (NotAuthenticated, SessionExpired, httpx.HTTPError)
@@ -60,7 +68,7 @@ def all_balances(
 
     def fetch(account: Account) -> AccountBalance:
         try:
-            balance = AviosClient(account.session(settings)).get_balance()
+            balance = account.client(settings).get_balance()
             return AccountBalance(account=account, balance=balance)
         except _FETCH_ERRORS as exc:
             return AccountBalance(account=account, error=str(exc) or exc.__class__.__name__)
@@ -75,7 +83,7 @@ def combined_total(balances: Sequence[AccountBalance]) -> int:
 
 def _merged(
     accounts: Sequence[Account],
-    fetch_one: Callable[[AviosClient], list[Transaction]],
+    fetch_one: Callable[[_Client], list[Transaction]],
     *,
     settings: Settings | None,
 ) -> list[TaggedTransaction]:
@@ -86,7 +94,7 @@ def _merged(
 
     def fetch(account: Account) -> list[TaggedTransaction]:
         try:
-            txns = fetch_one(AviosClient(account.session(settings)))
+            txns = fetch_one(account.client(settings))
             return [TaggedTransaction(account=account, transaction=t) for t in txns]
         except _FETCH_ERRORS:
             return []

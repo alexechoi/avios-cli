@@ -17,6 +17,7 @@ from avios.accounts import Account, AccountStore
 from avios.aggregate import AccountBalance, TaggedTransaction
 from avios.auth import ImportResult, LoginError
 from avios.cli import app
+from avios.finnair import FinnairCredentials
 from avios.models import Balance, Overview, Profile, Transaction
 from avios.programmes import get_programme
 from avios.session import NotAuthenticated, SessionExpired
@@ -271,7 +272,8 @@ def test_balance_shows_per_account_error_without_crashing(
         def get_balance(self) -> Balance:
             raise SessionExpired("session expired")
 
-    monkeypatch.setattr("avios.aggregate.AviosClient", Client)
+    # aggregation dispatches through Account.client() (backend-aware).
+    monkeypatch.setattr("avios.accounts.Account.client", lambda self, *a, **k: Client())
     result = runner.invoke(app, ["balance"])
     assert result.exit_code == 0
     assert "expired" in result.stdout.lower()
@@ -311,7 +313,7 @@ def test_login_from_browser(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         "avios.cli.import_from_browser",
         lambda prog, browser="chrome", profile=None: ImportResult(2, "Default", True),
     )
-    monkeypatch.setattr("avios.cli.AviosClient", FakeClient)
+    monkeypatch.setattr("avios.accounts.Account.client", lambda self, *a, **k: FakeClient())
     result = runner.invoke(app, ["login", "iberia", "--from-browser"])
     assert result.exit_code == 0
     out = " ".join(result.stdout.split())  # Rich wraps lines
@@ -354,6 +356,27 @@ def test_login_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     result = runner.invoke(app, ["login", "--from-browser"])
     assert result.exit_code == 1
     assert "nope" in result.stdout
+
+
+def test_login_finnair_saves_oauth_credentials(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "avios"))
+    monkeypatch.setattr(
+        "avios.cli.login_finnair_via_browser",
+        lambda headless=False: FinnairCredentials("captured-token", "captured-api-key"),
+    )
+    monkeypatch.setattr("avios.accounts.Account.client", lambda self: FakeClient())
+
+    result = runner.invoke(app, ["login", "finnair"])
+
+    assert result.exit_code == 0
+    assert "Finnair Plus" in result.stdout
+    account = AccountStore().get("finnair")
+    assert account is not None
+    assert account.backend == "finnair"
+    assert account.token == "captured-token"
+    assert account.api_key == "captured-api-key"
 
 
 def test_logout_single_programme(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
