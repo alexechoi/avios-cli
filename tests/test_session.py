@@ -21,6 +21,8 @@ def test_save_and_load_cookies_round_trip(settings: Settings) -> None:
     session = _session(settings)
     session.save_cookies(AVIOS_COOKIE)
     assert session.load_cookies() == AVIOS_COOKIE
+    assert session.browser_cookies() == AVIOS_COOKIE
+    assert session.has_custom_transport is False
 
 
 def test_state_file_is_private(settings: Settings) -> None:

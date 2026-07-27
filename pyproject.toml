@@ -36,8 +36,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Browser-assisted login. Kept optional so the core stays lightweight and the
-# heavy Playwright browser download is only pulled when a user needs to log in.
+# Browser-assisted login and BA reward search. Kept optional so account-only
+# commands remain lightweight when a user does not need a browser.
 login = [
     "playwright>=1.44",
     "browser-cookie3>=0.19",

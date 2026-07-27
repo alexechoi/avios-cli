@@ -179,9 +179,14 @@ def login(
             account = Account.from_programme(prog, cookies=result.cookies)
             saved_label = f"{result.count} cookie(s){where}"
         else:
+            ba_note = (
+                " British Airways may show a second login prompt for reward flights."
+                if prog.slug == "ba"
+                else ""
+            )
             console.print(
                 f"Opening a browser — log in to [bold]{prog.name}[/] (password, captcha, "
-                "SMS code). Keep the window open; it captures your session automatically."
+                f"SMS code).{ba_note} Keep the window open until this command confirms success."
             )
             cookies = login_via_browser(prog, headless=headless)
             account = Account.from_programme(prog, cookies=cookies)

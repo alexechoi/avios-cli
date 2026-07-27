@@ -93,8 +93,12 @@ for Finnair because browser-cookie import cannot read that token.
 Each programme session is stored at `~/.config/avios/accounts/<programme>.json`
 (mode `600`). Sessions expire; just log in to that programme again. Use
 `avios logout <programme>` for one account or `avios logout` for all accounts.
-For BA, browser-assisted login also opens the reward-flight finder briefly so its
-separate `spend-avios` session is captured.
+For BA, browser-assisted login also opens the separate reward-flight application.
+British Airways may show a second login prompt; keep the browser open until the
+CLI confirms success. Reward searches drive the site's own form in a background
+Chrome window because the flight-search route rejects plain HTTP and automated
+headless requests, so the `login` extra remains required when running
+`avios flights` or the Reward Flights TUI tab.
 
 ## Usage
 

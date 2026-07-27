@@ -126,12 +126,17 @@ class _FakeRequest:
 class _FakePage:
     def __init__(self) -> None:
         self.visited: list[str] = []
+        self.url = ""
 
     def goto(self, url: str, **kwargs: object) -> None:
         self.visited.append(url)
+        self.url = url
 
     def wait_for_timeout(self, ms: int) -> None:
         pass
+
+    def title(self) -> str:
+        return "Search Reward Flights"
 
 
 class _FakeContext:
@@ -201,6 +206,24 @@ def test_login_captures_only_after_authenticated(settings: Settings) -> None:
     assert ctx.closed
     assert ctx.request.calls >= 3  # polled until authenticated, not immediately
     assert ctx.page.visited[-1].endswith("/en-GB/spend-avios/search-reward-flights")
+
+
+def test_ba_login_waits_for_separate_reward_session(settings: Settings) -> None:
+    ctx = _FakeContext(
+        ok_after=1,
+        cookies=[{"name": "ba_session_id", "value": "x", "domain": "www.avios.com"}],
+    )
+
+    with pytest.raises(LoginError, match="reward-flight login"):
+        login_via_browser(
+            BA,
+            settings=settings,
+            timeout_ms=4_000,
+            playwright_factory=_FakeFactory(ctx),
+        )
+
+    assert ctx.page.visited[-1].endswith("/en-GB/spend-avios/search-reward-flights")
+    assert ctx.closed
 
 
 def test_login_times_out_without_returning(settings: Settings) -> None:

@@ -2,8 +2,9 @@
 
 avios.com authenticates its internal JSON endpoints with a browser session cookie
 (no bearer token, no request signing). This module stores that cookie jar and
-builds pre-authenticated :class:`httpx.Client` instances. Acquiring the cookie in
-the first place (browser-assisted login) lives in :mod:`avios.auth`.
+builds pre-authenticated :class:`httpx.Client` instances. BA reward search is the
+exception: its Akamai-protected web flow uses Chrome directly. Acquiring cookies
+in the first place (browser-assisted login) lives in :mod:`avios.auth`.
 """
 
 from __future__ import annotations
@@ -99,6 +100,16 @@ class Session:
             return env.strip()
         cookies = self._cookies if self._cookies is not None else self.load_cookies()
         return cookie_header_from(cookies)
+
+    def browser_cookies(self) -> list[dict[str, Any]]:
+        """Return stored structured cookies suitable for seeding a browser context."""
+        cookies = self._cookies if self._cookies is not None else self.load_cookies()
+        return [dict(cookie) for cookie in cookies]
+
+    @property
+    def has_custom_transport(self) -> bool:
+        """Whether requests are routed through an injected transport (normally tests)."""
+        return self._transport is not None
 
     def is_authenticated(self) -> bool:
         return bool(self.cookie_header())
