@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-27
+
+### Fixed
+- An expired session made avios.com hang the request, surfacing as a confusing
+  "read operation timed out". Request timeouts are now treated as an expired
+  session with a clear "run `avios login` again" message.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added
@@ -120,7 +127,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/alexechoi/avios-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/alexechoi/avios-cli/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/alexechoi/avios-cli/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/alexechoi/avios-cli/compare/v0.1.4...v0.1.5
