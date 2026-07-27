@@ -51,22 +51,26 @@ uv run avios --help
 avios.com has no credential API — login is Auth0 Universal Login behind hCaptcha and
 SMS/passkey MFA — so `avios login` opens a real browser, **waits while you finish
 logging in** (password, captcha, SMS code), and captures the session once you land
-on the dashboard. It needs the **`login` extra**:
+on the dashboard:
 
 ```bash
-uvx --from 'avios-cli[login]' avios login
-uvx --from 'avios-cli[login]' avios login finnair
+uvx avios-cli login
+uvx avios-cli login iberia
+uvx avios-cli login finnair
 ```
 
-It launches your installed **Google Chrome** (no extra download). If you don't have
-Chrome, install Playwright's browser once with
-`uvx --from playwright playwright install chromium`.
+It launches your installed **Google Chrome** (no download). If you don't have
+Chrome, it fetches Playwright's Chromium automatically on first login (~150 MB,
+one-time). No extra flags — browser support ships in the package.
+
+> Tip: if you'll use it often, `uv tool install avios-cli` once, then just run
+> `avios login`, `avios balance`, etc. directly.
 
 Prefer not to open a browser? Import the cookie from a Chrome you're already logged
 into avios.com with:
 
 ```bash
-uvx --from 'avios-cli[login]' avios login --from-browser
+uvx avios-cli login --from-browser
 ```
 
 This scans **all your Chrome profiles** and uses whichever one is actually logged
@@ -74,16 +78,12 @@ into avios.com (it tells you which). If you have several profiles, you can targe
 one directly:
 
 ```bash
-uvx --from 'avios-cli[login]' avios login --from-browser --profile "Profile 1"
+uvx avios-cli login --from-browser --profile "Profile 1"
 ```
-
-Plain `uvx avios-cli login` won't work — the isolated environment doesn't include
-the `login` extra.
 
 **Stuck in an endless captcha loop?** That's bot detection on the automated
 browser. Use `--from-browser` instead: log into avios.com in your normal Chrome
-(you'll get one normal captcha), then run
-`uvx --from 'avios-cli[login]' avios login --from-browser`.
+(you'll get one normal captcha), then run `uvx avios-cli login --from-browser`.
 
 Finnair uses a different CAS/OAuth flow. `avios login finnair` opens the Finnair Plus
 balance page, lets you complete password and MFA in the real browser, and captures the

@@ -83,19 +83,15 @@ wheels = [
 name = "avios-cli"
 source = { editable = "." }
 dependencies = [
+    { name = "browser-cookie3" },
     { name = "httpx" },
+    { name = "playwright" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "textual" },
     { name = "typer" },
-]
-
-[package.optional-dependencies]
-login = [
-    { name = "browser-cookie3" },
-    { name = "playwright" },
 ]
 
 [package.dev-dependencies]
@@ -111,9 +107,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "browser-cookie3", marker = "extra == 'login'", specifier = ">=0.19" },
+    { name = "browser-cookie3", specifier = ">=0.19" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "playwright", marker = "extra == 'login'", specifier = ">=1.44" },
+    { name = "playwright", specifier = ">=1.44" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },
     { name = "pyyaml", specifier = ">=6.0" },
