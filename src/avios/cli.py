@@ -17,11 +17,12 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from avios import __version__
+from avios import __version__, aggregate
 from avios.accounts import Account, AccountStore
+from avios.aggregate import AccountBalance, TaggedTransaction
 from avios.auth import LoginError, import_from_browser, login_via_browser
 from avios.client import AviosClient
-from avios.models import Balance, Transaction
+from avios.models import Transaction
 from avios.programmes import get_programme, programme_slugs
 from avios.session import NotAuthenticated, SessionExpired
 
@@ -33,6 +34,9 @@ app = typer.Typer(
 console = Console()
 
 JSON_OPTION = typer.Option(False, "--json", help="Output raw JSON instead of a table.")
+ACCOUNT_OPTION = typer.Option(
+    None, "--account", "-a", help="Limit to one programme slug (default: all logged-in accounts)."
+)
 
 
 def _version_callback(value: bool) -> None:
@@ -69,6 +73,19 @@ def _client(slug: str | None = None) -> AviosClient:
     else:
         account = accounts[0]
     return AviosClient(account.session())
+
+
+def _accounts(slug: str | None = None) -> list[Account]:
+    """Resolve the accounts a command should act on: one (by slug) or all logged-in."""
+    accounts = AccountStore().list()
+    if not accounts:
+        raise NotAuthenticated("No accounts. Run `avios login`.")
+    if slug is None:
+        return accounts
+    match = next((a for a in accounts if a.slug == slug), None)
+    if match is None:
+        raise NotAuthenticated(f"Not logged in to '{slug}'. Run `avios login {slug}`.")
+    return [match]
 
 
 @contextmanager
@@ -177,84 +194,168 @@ def logout(
 
 
 # -- data commands -----------------------------------------------------------
-@app.command()
-def balance(json_out: bool = JSON_OPTION) -> None:
-    """Show your Avios balance."""
-    with _handle_errors():
-        result = _client().get_balance()
-    if json_out:
-        _print_json(result.as_dict())
+def _balance_json(item: AccountBalance) -> dict[str, Any]:
+    data: dict[str, Any] = {"programme": item.account.name, "slug": item.account.slug}
+    if item.balance is not None:
+        data.update(item.balance.as_dict())
+    if item.error is not None:
+        data["error"] = item.error
+    return data
+
+
+def _txn_json(item: TaggedTransaction) -> dict[str, Any]:
+    return {
+        "programme": item.account.name,
+        "slug": item.account.slug,
+        **item.transaction.as_dict(),
+    }
+
+
+def _render_single_balance(item: AccountBalance) -> None:
+    if item.balance is None:
+        console.print(f"[red]{item.account.name}: {escape(item.error or 'unavailable')}[/]")
         return
-    _render_balance(result)
-
-
-def _render_balance(result: Balance) -> None:
     table = Table(show_header=False, box=None)
-    table.add_row("[bold]Avios[/]", f"[bold cyan]{result.balance:,}[/]")
-    if result.individual is not None:
-        table.add_row("Individual", f"{result.individual:,}")
-    if result.household is not None:
-        table.add_row("Household", f"{result.household:,}")
+    table.add_row("[bold]Avios[/]", f"[bold cyan]{item.balance.balance:,}[/]")
+    if item.balance.individual is not None:
+        table.add_row("Individual", f"{item.balance.individual:,}")
+    if item.balance.household is not None:
+        table.add_row("Household", f"{item.balance.household:,}")
     console.print(table)
 
 
-def _render_transactions(items: list[Transaction], title: str) -> None:
+def _render_combined_balance(balances: list[AccountBalance]) -> None:
+    table = Table(title="Avios balance")
+    table.add_column("Programme")
+    table.add_column("Avios", justify="right")
+    for item in balances:
+        if item.balance is not None:
+            table.add_row(item.account.name, f"[cyan]{item.balance.balance:,}[/]")
+        else:
+            table.add_row(item.account.name, f"[red]{escape(item.error or 'unavailable')}[/]")
+    if sum(1 for b in balances if b.balance is not None) > 1:
+        table.add_section()
+        total = aggregate.combined_total(balances)
+        table.add_row("[bold]Combined[/]", f"[bold cyan]{total:,}[/]")
+    console.print(table)
+
+
+@app.command()
+def balance(account: str | None = ACCOUNT_OPTION, json_out: bool = JSON_OPTION) -> None:
+    """Show your Avios balance across all accounts, with a combined total."""
+    with _handle_errors():
+        accts = _accounts(account)
+        balances = aggregate.all_balances(accts)
+    if json_out:
+        _print_json([_balance_json(b) for b in balances])
+        return
+    if len(balances) == 1:
+        _render_single_balance(balances[0])
+    else:
+        _render_combined_balance(balances)
+
+
+@app.command()
+def accounts(json_out: bool = JSON_OPTION) -> None:
+    """List logged-in accounts with each balance and their status."""
+    with _handle_errors():
+        balances = aggregate.all_balances(_accounts())
+    if json_out:
+        _print_json([_balance_json(b) for b in balances])
+        return
+    table = Table(title="Accounts")
+    table.add_column("Programme")
+    table.add_column("Slug")
+    table.add_column("Avios", justify="right")
+    table.add_column("Status")
+    for item in balances:
+        if item.balance is not None:
+            table.add_row(
+                item.account.name, item.account.slug, f"{item.balance.balance:,}", "[green]ok[/]"
+            )
+        else:
+            table.add_row(
+                item.account.name,
+                item.account.slug,
+                "-",
+                f"[red]{escape(item.error or 'error')}[/]",
+            )
+    if sum(1 for b in balances if b.balance is not None) > 1:
+        table.add_section()
+        table.add_row(
+            "[bold]Combined[/]", "", f"[bold cyan]{aggregate.combined_total(balances):,}[/]", ""
+        )
+    console.print(table)
+
+
+def _render_tagged_transactions(
+    items: list[TaggedTransaction], title: str, *, show_programme: bool
+) -> None:
     if not items:
         console.print(f"[dim]No {title.lower()}.[/]")
         return
     table = Table(title=title)
+    if show_programme:
+        table.add_column("Programme")
     table.add_column("Date")
     table.add_column("Description")
     table.add_column("Avios", justify="right")
     table.add_column("Type")
-    for txn in items:
+    for item in items:
+        txn: Transaction = item.transaction
         date = (txn.date_processed or "")[:10]
         desc = (txn.description or "").splitlines()[0][:44] if txn.description else ""
         amount = f"{txn.amount:+,}" if txn.amount is not None else ""
         colour = "green" if (txn.amount or 0) >= 0 else "red"
         kind = txn.type.value if txn.type else ""
-        table.add_row(date, desc, f"[{colour}]{amount}[/]", kind or "")
+        row = [date, desc, f"[{colour}]{amount}[/]", kind or ""]
+        if show_programme:
+            row.insert(0, item.account.name)
+        table.add_row(*row)
     console.print(table)
 
 
 @app.command()
 def transactions(
-    limit: int = typer.Option(20, help="Number of transactions to show."),
+    account: str | None = ACCOUNT_OPTION,
+    limit: int = typer.Option(20, help="Number of transactions to show (across all accounts)."),
     json_out: bool = JSON_OPTION,
 ) -> None:
-    """List recent Avios transactions."""
+    """List recent Avios transactions, merged across accounts (newest first)."""
     with _handle_errors():
-        items = _client().get_transactions(limit=limit)
+        accts = _accounts(account)
+        tagged = aggregate.merged_transactions(accts, limit_per=limit)[:limit]
     if json_out:
-        _print_json([item.as_dict() for item in items])
+        _print_json([_txn_json(t) for t in tagged])
         return
-    _render_transactions(items, "Transactions")
+    _render_tagged_transactions(tagged, "Transactions", show_programme=len(accts) > 1)
 
 
 @app.command()
-def pending(json_out: bool = JSON_OPTION) -> None:
-    """List pending Avios transactions."""
+def pending(account: str | None = ACCOUNT_OPTION, json_out: bool = JSON_OPTION) -> None:
+    """List pending Avios transactions, merged across accounts."""
     with _handle_errors():
-        items = _client().get_pending_transactions()
+        accts = _accounts(account)
+        tagged = aggregate.merged_pending(accts)
     if json_out:
-        _print_json([item.as_dict() for item in items])
+        _print_json([_txn_json(t) for t in tagged])
         return
-    _render_transactions(items, "Pending")
+    _render_tagged_transactions(tagged, "Pending", show_programme=len(accts) > 1)
 
 
 @app.command()
-def overview() -> None:
+def overview(account: str | None = ACCOUNT_OPTION) -> None:
     """Show the dashboard overview (raw JSON)."""
     with _handle_errors():
-        result = _client().get_overview()
+        result = _client(account).get_overview()
     _print_json(result.as_dict())
 
 
 @app.command()
-def whoami(json_out: bool = JSON_OPTION) -> None:
+def whoami(account: str | None = ACCOUNT_OPTION, json_out: bool = JSON_OPTION) -> None:
     """Show your profile (name, tier, membership)."""
     with _handle_errors():
-        data = _client().get_profile().as_dict()
+        data = _client(account).get_profile().as_dict()
     if json_out:
         _print_json(data)
         return
@@ -280,10 +381,10 @@ def whoami(json_out: bool = JSON_OPTION) -> None:
 
 
 @app.command()
-def raw(path: str) -> None:
+def raw(path: str, account: str | None = ACCOUNT_OPTION) -> None:
     """Fetch any endpoint directly and print the response."""
     with _handle_errors():
-        data = _client().raw(path)
+        data = _client(account).raw(path)
     if isinstance(data, str):
         console.print(data)
     else:
