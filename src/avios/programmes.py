@@ -38,6 +38,12 @@ PROGRAMMES: dict[str, Programme] = {
         opco="IBP",
         login_url="https://www.iberia-avios.com",
     ),
+    "aerlingus": Programme(
+        slug="aerlingus",
+        name="Aer Lingus",
+        opco="EI",
+        login_url=AVIOS_BASE_URL,
+    ),
 }
 
 

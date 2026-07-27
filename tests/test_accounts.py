@@ -13,19 +13,27 @@ from avios.programmes import get_programme
 
 BA_COOKIE = [{"name": "appSession", "value": "x", "domain": "www.avios.com"}]
 IB_COOKIE = [{"name": "appSession", "value": "y", "domain": "www.avios.com"}]
+EI_COOKIE = [{"name": "appSession", "value": "z", "domain": "www.avios.com"}]
 
 
 def test_save_and_list_round_trip(settings: Settings) -> None:
     store = AccountStore(settings)
     store.save(Account.from_programme(get_programme("ba"), cookies=BA_COOKIE))
     store.save(Account.from_programme(get_programme("iberia"), cookies=IB_COOKIE))
+    store.save(Account.from_programme(get_programme("aerlingus"), cookies=EI_COOKIE))
 
-    assert {a.slug for a in store.list()} == {"ba", "iberia"}
+    assert {a.slug for a in store.list()} == {"aerlingus", "ba", "iberia"}
     ba = store.get("ba")
     assert ba is not None
     assert ba.opco == "BAEC"
     assert ba.base_url == "https://www.avios.com"
     assert ba.cookies == BA_COOKIE
+    aerlingus = store.get("aerlingus")
+    assert aerlingus is not None
+    assert aerlingus.name == "Aer Lingus"
+    assert aerlingus.opco == "EI"
+    assert aerlingus.base_url == "https://www.avios.com"
+    assert aerlingus.cookies == EI_COOKIE
 
 
 def test_account_file_is_private(settings: Settings) -> None:
@@ -80,3 +88,19 @@ def test_account_session_sends_opco_and_base_url(settings: Settings) -> None:
     assert seen["host"] == "www.avios.com"
     assert session.opco == "IBP"
     assert session.base_url == "https://www.avios.com"
+
+
+def test_aerlingus_session_sends_ei_opco(settings: Settings) -> None:
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["opco"] = request.headers.get("x-avios-opco", "")
+        seen["host"] = request.url.host
+        return httpx.Response(200, json={"ok": True})
+
+    account = Account.from_programme(get_programme("aerlingus"), cookies=EI_COOKIE)
+    session = account.session(settings, transport=httpx.MockTransport(handler))
+
+    assert session.get_json("/shell/api/users/current/accounts") == {"ok": True}
+    assert seen == {"opco": "EI", "host": "www.avios.com"}
+    assert session.opco == "EI"
