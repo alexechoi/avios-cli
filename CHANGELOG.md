@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-27
+
+### Fixed
+- **Finnair balance/transactions failed with 403 immediately after login.** Login
+  captured the API key from the first `api.finnair.com` request (`getgauth`), which
+  uses a *different* `x-api-key` than the loyalty balance/transactions endpoints —
+  so every data call sent the wrong key and was refused. Login now captures
+  credentials only from a loyalty API request (`/d/loyalty-service/legacy/current/api/`),
+  which carries the key those endpoints accept. Fixes #28.
+- A Finnair `403 Forbidden` is no longer mislabelled "session expired"; the message
+  now names the real cause (likely a stale/wrong API key) and includes the response.
+  Fixes #29.
+
 ## [0.4.0] - 2026-07-27
 
 ### Added
@@ -174,7 +187,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/alexechoi/avios-cli/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/alexechoi/avios-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/alexechoi/avios-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/alexechoi/avios-cli/compare/v0.2.0...v0.2.1

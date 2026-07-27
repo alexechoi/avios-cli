@@ -9,10 +9,12 @@ import pytest
 
 from avios.config import Settings
 from avios.finnair import (
+    FINNAIR_API_BASE_URL,
     FINNAIR_PROFILE_PATH,
     FinnairClient,
     FinnairCredentials,
     FinnairSession,
+    _loyalty_credentials,
     _points,
     login_finnair_via_browser,
 )
@@ -132,6 +134,28 @@ def test_expired_token_is_session_expired(settings: Settings) -> None:
         client.get_balance()
 
 
+def test_403_is_reported_as_forbidden_not_generic_expiry(settings: Settings) -> None:
+    captured: list[httpx.Request] = []
+    client = _client(settings, [403], captured)
+    with pytest.raises(SessionExpired, match="403 Forbidden"):
+        client.get_balance()
+
+
+def test_loyalty_credentials_only_captures_loyalty_endpoint() -> None:
+    base = FINNAIR_API_BASE_URL
+    headers = {"oauth_token": "t", "x-api-key": "k"}
+    # getgauth (member-service) uses a different key → must NOT be captured.
+    getgauth = f"{base}/d/loyalty-service/member-service/gauth/getgauth/1"
+    assert _loyalty_credentials(getgauth, headers) is None
+    # The loyalty balance/transactions endpoint → captured.
+    profile = f"{base}{FINNAIR_PROFILE_PATH}"
+    assert _loyalty_credentials(profile, headers) == FinnairCredentials("t", "k")
+    # Missing a header → not captured.
+    assert _loyalty_credentials(profile, {"x-api-key": "k"}) is None
+    # Unrelated host → not captured.
+    assert _loyalty_credentials("https://example.com/x", headers) is None
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [(100, 100), ("+1,250", 1250), (" -500 ", -500), ("unknown", None), (None, None)],
@@ -160,6 +184,14 @@ class _FakePage:
 
     def wait_for_timeout(self, timeout: int) -> None:
         self.waits += 1
+        if self.waits == 1:
+            # getgauth fires first but uses a DIFFERENT api key — must be ignored.
+            self.handler(
+                _FakeRequest(
+                    "https://api.finnair.com/d/loyalty-service/member-service/gauth/getgauth/1",
+                    {"oauth_token": "wrong-token", "x-api-key": "getgauth-key"},
+                )
+            )
         if self.waits == 2:
             self.handler(
                 _FakeRequest(
