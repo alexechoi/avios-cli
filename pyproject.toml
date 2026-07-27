@@ -33,15 +33,17 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "pyyaml>=6.0",
-]
-
-[project.optional-dependencies]
-# Browser-assisted login and BA reward search. Kept optional so account-only
-# commands remain lightweight when a user does not need a browser.
-login = [
+    # Browser-assisted login ships in the base package so `uvx avios-cli login`
+    # works with no extra flags. The Chromium *binary* is still fetched on demand
+    # (only if you have no system Chrome) — see avios.auth._install_chromium.
     "playwright>=1.44",
     "browser-cookie3>=0.19",
 ]
+
+[project.optional-dependencies]
+# Retained for backward compatibility: the login dependencies now ship in the
+# base package, so `avios-cli[login]` resolves to the same thing as `avios-cli`.
+login = []
 
 # Dev tooling lives in a PEP 735 dependency-group (not an extra) so that `uv sync`
 # and `uv run` install it by default — an extra would be pruned by `uv run`.

@@ -5,12 +5,12 @@ hCaptcha, Akamai Bot Manager and SMS/passkey MFA, so there is no way to POST a
 username/password over HTTP and obtain a session. Instead we let a real browser
 handle the login once and capture the resulting session cookie.
 
-Two strategies, both requiring the optional ``login`` extra
-(``pip install "avios-cli[login]"``):
+Playwright and browser_cookie3 ship in the base package, so these work with a
+plain ``avios`` install (no extra flags). Two strategies:
 
 - :func:`login_via_browser` — open a Playwright browser, the user logs in
-  (password + captcha + MFA), and we grab the cookies. Also needs
-  ``playwright install chromium``.
+  (password + captcha + MFA), and we grab the cookies. The Chromium binary is
+  fetched on demand only if you have no system Chrome (see :func:`_install_chromium`).
 - :func:`import_from_browser` — read the avios.com cookie straight out of a
   running browser via ``browser_cookie3`` (no popup) if already logged in there.
 """
@@ -177,11 +177,9 @@ def _import_sync_playwright() -> Any:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise LoginError(
-            "Playwright isn't installed. Log in using the 'login' extra:\n"
-            "  uvx --from 'avios-cli[login]' avios login\n"
-            "  (first time only: uvx --from playwright playwright install chromium)\n"
-            "Or import the cookie from Chrome instead (no browser download):\n"
-            "  uvx --from 'avios-cli[login]' avios login --from-browser"
+            "Playwright isn't available in this environment. Reinstall avios-cli "
+            "(e.g. `uv tool install avios-cli`), or import the cookie from your "
+            "browser instead:\n  avios login --from-browser"
         ) from exc
     return sync_playwright
 
@@ -236,22 +234,50 @@ def _open_login_context(
         # Chrome's native headless networking can reach BA's login page, but its
         # default ``HeadlessChrome`` UA is rejected. Keep the normal Chrome UA.
         launch_options["user_agent"] = user_agent
+
+    def launch(**extra: Any) -> Any:
+        return pw.chromium.launch_persistent_context(
+            user_data_dir,
+            headless=headless,
+            args=args,
+            ignore_default_args=ignore_default_args,
+            **launch_options,
+            **extra,
+        )
+
+    # Prefer the user's real Chrome, then bundled Chromium.
     for extra in ({"channel": "chrome"}, {}):
         try:
-            return pw.chromium.launch_persistent_context(
-                user_data_dir,
-                headless=headless,
-                args=args,
-                ignore_default_args=ignore_default_args,
-                **launch_options,
-                **extra,
-            )
+            return launch(**extra)
         except Exception:
             continue
+    # Neither is available (no system Chrome and no downloaded Chromium). Fetch
+    # the Chromium binary once, then retry the bundled browser.
+    if _install_chromium():
+        try:
+            return launch()
+        except Exception:
+            pass
     raise LoginError(
         "Couldn't launch a browser. Install Chromium once with:\n"
         "  uvx --from playwright playwright install chromium"
     )
+
+
+def _install_chromium() -> bool:
+    """Download Playwright's Chromium binary on demand. Returns True if it ran."""
+    import subprocess
+    import sys
+
+    print("No browser found — downloading Chromium (~150 MB, one-time)…", file=sys.stderr)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True,
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _bc3() -> Any:
@@ -259,8 +285,8 @@ def _bc3() -> Any:
         import browser_cookie3 as bc3
     except ImportError as exc:
         raise LoginError(
-            "browser-cookie3 isn't installed. Run with the 'login' extra:\n"
-            "  uvx --from 'avios-cli[login]' avios login --from-browser"
+            "browser-cookie3 isn't available in this environment. "
+            "Reinstall avios-cli (e.g. `uv tool install avios-cli`)."
         ) from exc
     return bc3
 

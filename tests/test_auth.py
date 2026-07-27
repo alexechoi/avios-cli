@@ -101,7 +101,7 @@ def test_login_via_browser_without_playwright(
 ) -> None:
     monkeypatch.setitem(sys.modules, "playwright", None)
     monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
-    with pytest.raises(LoginError, match="Playwright isn't installed"):
+    with pytest.raises(LoginError, match="Playwright isn't available"):
         login_via_browser(BA, settings=settings)
 
 
@@ -245,3 +245,43 @@ def test_open_login_context_prefers_chrome_then_falls_back(tmp_path: object) -> 
     result = _open_login_context(pw, headless=True, user_data_dir=str(tmp_path))
     assert result is ctx
     assert pw.chromium.channels == ["chrome", None]  # tried Chrome, fell back to Chromium
+
+
+def test_open_login_context_installs_chromium_when_missing(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from avios import auth
+
+    ctx = _FakeContext(ok_after=1, cookies=[])
+
+    class _NoBrowserThenInstalled:
+        """No system Chrome and no Chromium until an install runs, then Chromium works."""
+
+        def __init__(self) -> None:
+            self.channels: list[str | None] = []
+            self.installed = False
+
+        def launch_persistent_context(self, user_data_dir: str, **kwargs: object) -> _FakeContext:
+            channel = kwargs.get("channel")
+            self.channels.append(channel)  # type: ignore[arg-type]
+            if channel == "chrome":
+                raise RuntimeError("no system chrome")
+            if not self.installed:  # bundled Chromium not present yet
+                raise RuntimeError("Executable doesn't exist")
+            return ctx
+
+    class _PW:
+        def __init__(self) -> None:
+            self.chromium = _NoBrowserThenInstalled()
+
+    pw = _PW()
+
+    def fake_install() -> bool:
+        pw.chromium.installed = True
+        return True
+
+    monkeypatch.setattr(auth, "_install_chromium", fake_install)
+    result = _open_login_context(pw, headless=True, user_data_dir=str(tmp_path))
+    assert result is ctx
+    # tried chrome, tried bundled (missing), then bundled again after install
+    assert pw.chromium.channels == ["chrome", None, None]

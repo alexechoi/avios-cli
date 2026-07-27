@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-07-27
+
+### Changed
+- **`uvx avios-cli login` now works with no extra flags.** Browser-assisted login
+  (Playwright + browser-cookie3) moved from the optional `[login]` extra into the
+  base package, so `uvx avios-cli login iberia` just works — no more
+  `uvx --from 'avios-cli[login]' …`. The `login` extra is kept as a no-op alias
+  for backward compatibility.
+- If you have no system Chrome, `avios login` now **downloads Playwright's Chromium
+  automatically** on first use (~150 MB, one-time) instead of failing with an
+  install hint.
+
 ## [0.4.2] - 2026-07-27
 
 ### Fixed
@@ -198,7 +210,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Reward-flight **availability** search is not yet implemented (needs a British
   Airways capture).
 
-[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/alexechoi/avios-cli/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/alexechoi/avios-cli/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/alexechoi/avios-cli/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/alexechoi/avios-cli/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/alexechoi/avios-cli/compare/v0.3.0...v0.4.0
