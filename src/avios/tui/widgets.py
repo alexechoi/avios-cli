@@ -5,23 +5,44 @@ from __future__ import annotations
 from rich.text import Text
 from textual.widgets import Static
 
-from avios.models import Balance
+from avios.aggregate import AccountBalance
 
 
 class BalanceDisplay(Static):
-    """A one-line header showing the Avios balance (or a status message).
+    """Header showing the combined Avios balance across accounts (or a status message).
 
     The rendered plain text is mirrored on :attr:`last_text` for easy assertions.
     """
 
     last_text: str = ""
 
-    def update_balance(self, balance: Balance) -> None:
+    def update_balances(self, balances: list[AccountBalance]) -> None:
+        ok = [b for b in balances if b.balance is not None]
+        if not ok:
+            self.update_message("No balances available — run `avios login`", error=True)
+            return
+
         text = Text()
-        text.append("Avios  ", style="bold")
-        text.append(f"{balance.balance:,}", style="bold cyan")
-        if balance.household is not None:
-            text.append(f"     Household  {balance.household:,}", style="dim")
+        if len(balances) == 1:
+            # Single account keeps the individual/household detail.
+            bal = ok[0].balance
+            assert bal is not None
+            text.append("Avios  ", style="bold")
+            text.append(f"{bal.balance:,}", style="bold cyan")
+            if bal.household is not None:
+                text.append(f"     Household  {bal.household:,}", style="dim")
+        else:
+            total = sum(b.balance.balance for b in ok if b.balance is not None)
+            text.append("Combined  ", style="bold")
+            text.append(f"{total:,}", style="bold cyan")
+            parts = [
+                f"{b.account.name} {b.balance.balance:,}"
+                if b.balance is not None
+                else f"{b.account.name} ⚠"
+                for b in balances
+            ]
+            text.append("     " + "   ·   ".join(parts), style="dim")
+
         self.last_text = text.plain
         self.update(text)
 

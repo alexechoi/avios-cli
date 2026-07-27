@@ -1,39 +1,31 @@
 """The avios Textual dashboard.
 
-A single screen: a balance header and a scrollable transactions table. Data is
-fetched off the event loop (the API client is synchronous httpx) via
-``asyncio.to_thread`` inside an exclusive worker, so the UI never blocks.
+A single screen: a combined balance header and a scrollable transactions table
+merged across every logged-in account. Data is fetched off the event loop (the
+API client is synchronous httpx) via ``asyncio.to_thread`` inside an exclusive
+worker, so the UI never blocks. Per-account failures are captured by the
+aggregation layer rather than blanking the whole dashboard.
 """
 
 from __future__ import annotations
 
 import asyncio
 
-import httpx
 from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import DataTable, Footer, Header, Static
 
-from avios.accounts import AccountStore
-from avios.client import AviosClient
-from avios.models import Transaction
-from avios.session import NotAuthenticated, SessionExpired
+from avios import aggregate
+from avios.accounts import Account, AccountStore
+from avios.aggregate import TaggedTransaction
 from avios.tui.art import banner_text
 from avios.tui.widgets import BalanceDisplay
 
 TRANSACTIONS_TO_SHOW = 50
 
 
-def _default_client() -> AviosClient:
-    """Client for the first logged-in account (raises NotAuthenticated if none)."""
-    accounts = AccountStore().list()
-    if not accounts:
-        raise NotAuthenticated("No accounts. Run `avios login`.")
-    return AviosClient(accounts[0].session())
-
-
 class AviosApp(App[None]):
-    """Full-screen Avios dashboard."""
+    """Full-screen Avios dashboard across all logged-in accounts."""
 
     CSS_PATH = "styles.tcss"
     TITLE = "avios"
@@ -43,9 +35,9 @@ class AviosApp(App[None]):
         ("q", "quit", "Quit"),
     ]
 
-    def __init__(self, client: AviosClient | None = None) -> None:
+    def __init__(self, accounts: list[Account] | None = None) -> None:
         super().__init__()
-        self._client = client or _default_client()
+        self._accounts = accounts if accounts is not None else AccountStore().list()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -67,31 +59,23 @@ class AviosApp(App[None]):
         await self._load()
 
     async def _load(self) -> None:
-        try:
-            balance = await asyncio.to_thread(self._client.get_balance)
-        except (NotAuthenticated, SessionExpired) as exc:
-            self._show_error(f"{exc}  —  run `avios login`")
+        if not self._accounts:
+            self._show_error("No accounts — run `avios login`")
             return
-        except httpx.HTTPError as exc:
-            self._show_error(f"Request failed: {exc}")
-            return
-        self.query_one("#balance", BalanceDisplay).update_balance(balance)
 
-        # Transactions are experimental (manage-avios session); degrade gracefully
-        # so the balance still shows if they're unavailable.
-        try:
-            transactions = await asyncio.to_thread(
-                self._client.get_transactions, TRANSACTIONS_TO_SHOW
-            )
-        except (NotAuthenticated, SessionExpired, httpx.HTTPError):
-            transactions = []
-        self._populate_transactions(transactions)
+        balances = await asyncio.to_thread(aggregate.all_balances, self._accounts)
+        self.query_one("#balance", BalanceDisplay).update_balances(balances)
+
+        tagged = await asyncio.to_thread(aggregate.merged_transactions, self._accounts)
+        self._populate_transactions(tagged, show_programme=len(self._accounts) > 1)
 
     def _show_error(self, message: str) -> None:
         self.query_one("#balance", BalanceDisplay).update_message(message, error=True)
         self.query_one("#transactions", DataTable).loading = False
 
-    def _populate_transactions(self, transactions: list[Transaction]) -> None:
+    def _populate_transactions(
+        self, transactions: list[TaggedTransaction], *, show_programme: bool
+    ) -> None:
         table = self.query_one("#transactions", DataTable)
         table.loading = False
         table.clear(columns=True)
@@ -99,15 +83,21 @@ class AviosApp(App[None]):
             table.add_column("info")
             table.add_row("No transactions")
             return
+        if show_programme:
+            table.add_column("Programme")
         table.add_columns("Date", "Description", "Avios", "Type")
-        for txn in transactions:
+        for item in transactions:
+            txn = item.transaction
             date = (txn.date_processed or "")[:10]
             desc = (txn.description or "").splitlines()[0][:44] if txn.description else ""
             amount = f"{txn.amount:+,}" if txn.amount is not None else ""
             kind = txn.type.value if txn.type else ""
-            table.add_row(date, desc, amount, kind)
+            row = [date, desc, amount, kind]
+            if show_programme:
+                row.insert(0, item.account.name)
+            table.add_row(*row)
 
 
-def run(client: AviosClient | None = None) -> None:
+def run(accounts: list[Account] | None = None) -> None:
     """Launch the dashboard."""
-    AviosApp(client=client).run()
+    AviosApp(accounts=accounts).run()
