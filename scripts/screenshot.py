@@ -1,6 +1,6 @@
 """Generate the TUI screenshot (SVG) used in the README.
 
-Runs the multi-account dashboard headlessly with demo data (two programmes) and
+Runs the multi-account dashboard headlessly with demo data (four programmes) and
 exports an SVG.
 
     uv run python scripts/screenshot.py
@@ -27,13 +27,19 @@ DOCS = Path(__file__).resolve().parent.parent / "docs"
 
 _BA = Account.from_programme(get_programme("ba"), cookies=[{"name": "s", "value": "ba"}])
 _IB = Account.from_programme(get_programme("iberia"), cookies=[{"name": "s", "value": "ib"}])
+_AL = Account.from_programme(get_programme("aerlingus"), cookies=[{"name": "s", "value": "al"}])
+_FI = Account.from_programme(get_programme("finnair"), cookies=[])
 
-_BALANCES = {"ba": 75751, "iberia": 22040}
+_BALANCES = {"ba": 75751, "iberia": 22040, "aerlingus": 8300, "finnair": 9120}
 _DEMO = [
+    (_FI, "2026-07-20", "Finnair AY1337 HEL-LHR", 3100, "Flight"),
     (_BA, "2026-07-18", "Flight BA286 SFO-LHR", 8500, "Collection"),
+    (_AL, "2026-07-15", "Aer Lingus EI154 DUB-LHR", 1900, "Flight"),
     (_IB, "2026-07-12", "Iberia IB3170 MAD-LHR", 4200, "Reward Flight"),
     (_BA, "2026-07-02", "Tesco groceries", 240, "BA Avios eStore"),
+    (_AL, "2026-06-28", "AerClub Dining", 480, "Dining"),
     (_IB, "2026-06-21", "NH Hotels Madrid", 1600, "Hotel"),
+    (_FI, "2026-06-14", "Nordic Hotels Helsinki", 720, "Hotel"),
     (_BA, "2026-06-09", "Redemption LHR-JFK", -50000, "Reward Flight"),
 ]
 
@@ -126,7 +132,7 @@ async def main() -> None:
     # Swap the aggregation layer for demo data (no network) before the app loads.
     aggregate.all_balances = _demo_balances  # type: ignore[assignment]
     aggregate.merged_transactions = _demo_transactions  # type: ignore[assignment]
-    app = AviosApp(accounts=[_BA, _IB], reward_client=_DemoRewardClient())
+    app = AviosApp(accounts=[_BA, _IB, _AL, _FI], reward_client=_DemoRewardClient())
     async with app.run_test(size=(96, 36)) as pilot:
         await app._load()
         await pilot.pause()
