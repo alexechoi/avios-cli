@@ -17,9 +17,11 @@ DEFAULT_BASE_URL = "https://www.avios.com"
 
 # A realistic desktop-Chrome UA. The internal endpoints are cookie-authenticated
 # and don't sign requests, but sending a browser-like UA avoids trivial filtering.
+# Keep the major version in step with ``avios.rewards._CHROME_FETCH_HEADERS``:
+# Akamai flags a UA whose version disagrees with the ``sec-ch-ua`` client hints.
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 )
 
 

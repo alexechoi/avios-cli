@@ -6,7 +6,7 @@ rendering (header + Programme column) without any network.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import pytest
 from textual.widgets import DataTable, Input, Select, TabbedContent
@@ -17,7 +17,7 @@ from avios.aggregate import AccountBalance, TaggedTransaction
 from avios.cli import app as cli_app
 from avios.models import Balance, Transaction
 from avios.programmes import get_programme
-from avios.rewards import RewardCalendar, RewardSearchQuery
+from avios.rewards import RewardCalendar, RewardLeg, RewardSearchQuery
 from avios.tui.app import AviosApp
 from avios.tui.rewards import RewardFlightsPane
 from avios.tui.widgets import BalanceDisplay
@@ -39,39 +39,71 @@ def _txn(account: Account, date: str, desc: str, amount: int) -> TaggedTransacti
 
 
 class FakeRewardClient:
+    """Stands in for AviosClient's batched, one-browser-session reward search."""
+
     def __init__(self, *, fail_inbound: bool = False) -> None:
-        self.queries: list[RewardSearchQuery] = []
+        self.calls: list[list[RewardLeg]] = []
         self.fail_inbound = fail_inbound
 
-    def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar:
-        self.queries.append(query)
-        if self.fail_inbound and query.origin == "ABZ":
-            raise RuntimeError("inbound failed")
+    @property
+    def queries(self) -> list[RewardSearchQuery]:
+        return [leg.query for call in self.calls for leg in call]
+
+    def search_reward_legs(self, legs: Sequence[RewardLeg]) -> list[RewardCalendar | Exception]:
+        self.calls.append(list(legs))
+        return [
+            RuntimeError("inbound failed")
+            if self.fail_inbound and leg.query.origin == "ABZ"
+            else self._calendar(leg)
+            for leg in legs
+        ]
+
+    @staticmethod
+    def _calendar(leg: RewardLeg) -> RewardCalendar:
+        query = leg.query
         day = f"{query.month}-05"
+        priced = leg.departure_date is not None
         return RewardCalendar.model_validate(
             {
                 "origin": query.origin,
                 "destination": query.destination,
                 "month": query.month,
+                "priced": priced,
                 "days": {
                     day: {
                         "date": day,
                         "availabilityLevel": 2,
-                        "flights": [
+                        "journeys": [
                             {
-                                "departureAirport": (
-                                    "LHR" if query.origin == "LON" else query.origin
-                                ),
-                                "arrivalAirport": query.destination,
-                                "departureTime": f"{day}T06:35:00",
-                                "arrivalTime": f"{day}T08:10:00",
-                                "duration": 95,
+                                "journeyType": "outbound",
                                 "direct": True,
-                                "peak": False,
-                                "marketing": {"carrier": "BA", "flightNumber": "1300"},
-                                "availability": [
-                                    {"cabin": "C", "state": "9", "seatsAvailable": 9},
-                                    {"cabin": "M", "state": "C", "seatsAvailable": 0},
+                                "flights": [
+                                    {
+                                        "departureAirport": (
+                                            "LHR" if query.origin == "LON" else query.origin
+                                        ),
+                                        "arrivalAirport": query.destination,
+                                        "departureTime": f"{day}T06:35:00",
+                                        "arrivalTime": f"{day}T08:10:00",
+                                        "duration": 95,
+                                        "direct": True,
+                                        "peak": False,
+                                        "marketing": {"carrier": "BA", "flightNumber": "1300"},
+                                        "availability": [
+                                            {
+                                                "cabin": "J",
+                                                "rbd": "U",
+                                                "state": "9",
+                                                "seatsAvailable": 9,
+                                                "price": (
+                                                    {"pricingRowKey": "k", "adult": 50000}
+                                                    if priced
+                                                    else None
+                                                ),
+                                            },
+                                            {"cabin": "M", "state": "C", "seatsAvailable": 0},
+                                        ],
+                                    }
                                 ],
                             }
                         ],
@@ -79,7 +111,7 @@ class FakeRewardClient:
                     f"{query.month}-06": {
                         "date": f"{query.month}-06",
                         "availabilityLevel": 0,
-                        "flights": [],
+                        "journeys": [],
                     },
                 },
             }
@@ -234,9 +266,36 @@ async def test_reward_tab_return_reverses_inbound() -> None:
             ("LON", "ABZ"),
             ("ABZ", "LON"),
         ]
+        # Both legs in one client call, so one browser session serves the search.
+        assert len(client.calls) == 1
         inbound = app.query_one("#inbound-flights", DataTable)
         assert inbound.display is True
         assert inbound.row_count == 1
+
+
+async def test_reward_tab_shows_avios_prices_for_an_exact_date() -> None:
+    client = FakeRewardClient()
+    app = AviosApp(accounts=[_account("ba")], reward_client=client)
+    async with app.run_test() as pilot:
+        pane = _fill_reward_form(app, outbound="2099-11-05")
+        pane.start_search()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert [leg.departure_date for leg in client.calls[0]] == ["2099-11-05"]
+        table = app.query_one("#outbound-flights", DataTable)
+        row = table.get_row_at(0)
+        assert "9 · 50,000" in row
+
+
+async def test_reward_tab_calendar_mode_skips_pricing() -> None:
+    client = FakeRewardClient()
+    app = AviosApp(accounts=[_account("ba")], reward_client=client)
+    async with app.run_test() as pilot:
+        pane = _fill_reward_form(app, outbound="2099-11", mode="calendar")
+        pane.start_search()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        assert [leg.departure_date for leg in client.calls[0]] == [None]
 
 
 async def test_reward_tab_keeps_outbound_when_inbound_fails() -> None:

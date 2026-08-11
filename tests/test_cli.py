@@ -7,6 +7,7 @@ parsing, rendering and error handling without any network or browser.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +22,91 @@ from avios.cli import app
 from avios.finnair import FinnairCredentials
 from avios.models import Balance, Overview, Profile, Transaction
 from avios.programmes import get_programme
-from avios.rewards import RewardCalendar, RewardSearchQuery
+from avios.rewards import RewardCalendar, RewardLeg, RewardSearchQuery
 from avios.session import NotAuthenticated, SessionExpired
 
 runner = CliRunner()
+
+
+def _query(origin: str, destination: str, month: str) -> RewardSearchQuery:
+    return RewardSearchQuery(origin=origin, destination=destination, month=month)
+
+
+def _fake_calendar(leg: RewardLeg) -> RewardCalendar:
+    """A one-flight month in the shape the new RSC parser produces.
+
+    Business availability uses ``J``, and flights sit under ``journeys`` — both
+    changed when BA rebuilt the finder, so the fake has to match.
+    """
+    query = leg.query
+    day = f"{query.month}-05"
+    priced = leg.departure_date is not None
+    return RewardCalendar.model_validate(
+        {
+            "origin": query.origin,
+            "destination": query.destination,
+            "month": query.month,
+            "originCityName": "London" if query.origin == "LON" else "Aberdeen",
+            "destinationCityName": "Aberdeen" if query.destination == "ABZ" else "London",
+            "monthsAvailable": [query.month],
+            "priced": priced,
+            "days": {
+                day: {
+                    "date": day,
+                    "availabilityLevel": 2,
+                    "journeys": [
+                        {
+                            "journeyType": "outbound",
+                            "totalDuration": 95,
+                            "direct": True,
+                            "flights": [
+                                {
+                                    "departureAirport": (
+                                        "LHR" if query.origin == "LON" else query.origin
+                                    ),
+                                    "arrivalAirport": query.destination,
+                                    "departureTime": f"{day}T06:35:00",
+                                    "arrivalTime": f"{day}T08:10:00",
+                                    "duration": 95,
+                                    "direct": True,
+                                    "peak": False,
+                                    "marketing": {"carrier": "BA", "flightNumber": "1300"},
+                                    "availability": [
+                                        {
+                                            "cabin": "J",
+                                            "rbd": "U",
+                                            "state": "9",
+                                            "seatsAvailable": 9,
+                                            "price": (
+                                                {
+                                                    "pricingRowKey": "k",
+                                                    "cabinCode": "J",
+                                                    "adult": 50000,
+                                                }
+                                                if priced
+                                                else None
+                                            ),
+                                        },
+                                        {
+                                            "cabin": "M",
+                                            "rbd": "X",
+                                            "state": "C",
+                                            "seatsAvailable": 0,
+                                        },
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                f"{query.month}-06": {
+                    "date": f"{query.month}-06",
+                    "availabilityLevel": 0,
+                    "journeys": [],
+                },
+            },
+        }
+    )
 
 
 class FakeClient:
@@ -75,56 +157,8 @@ class FakeClient:
             }
         )
 
-    def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar:
-        day = f"{query.month}-05"
-        return RewardCalendar.model_validate(
-            {
-                "origin": query.origin,
-                "destination": query.destination,
-                "month": query.month,
-                "originCityName": "London" if query.origin == "LON" else "Aberdeen",
-                "destinationCityName": ("Aberdeen" if query.destination == "ABZ" else "London"),
-                "days": {
-                    day: {
-                        "date": day,
-                        "availabilityLevel": 2,
-                        "flights": [
-                            {
-                                "departureAirport": (
-                                    "LHR" if query.origin == "LON" else query.origin
-                                ),
-                                "arrivalAirport": query.destination,
-                                "departureTime": f"{day}T06:35:00",
-                                "arrivalTime": f"{day}T08:10:00",
-                                "duration": 95,
-                                "direct": True,
-                                "peak": False,
-                                "marketing": {"carrier": "BA", "flightNumber": "1300"},
-                                "availability": [
-                                    {
-                                        "cabin": "C",
-                                        "rbd": "U",
-                                        "state": "9",
-                                        "seatsAvailable": 9,
-                                    },
-                                    {
-                                        "cabin": "M",
-                                        "rbd": "X",
-                                        "state": "C",
-                                        "seatsAvailable": 0,
-                                    },
-                                ],
-                            }
-                        ],
-                    },
-                    f"{query.month}-06": {
-                        "date": f"{query.month}-06",
-                        "availabilityLevel": 0,
-                        "flights": [],
-                    },
-                },
-            }
-        )
+    def search_reward_legs(self, legs: Sequence[RewardLeg]) -> list[RewardCalendar | Exception]:
+        return [_fake_calendar(leg) for leg in legs]
 
     def raw(self, path: str) -> dict[str, str]:
         return {"path": path}
@@ -350,35 +384,89 @@ def test_flights_calendar_can_show_unavailable(
     assert "2099-11-06" in result.stdout
 
 
-def test_flights_return_reverses_route(
-    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    calls: list[RewardSearchQuery] = []
+def _recording_client(
+    monkeypatch: pytest.MonkeyPatch,
+    results: list[RewardCalendar | Exception] | None = None,
+) -> list[RewardLeg]:
+    """Swap in a client that records the legs the CLI asked for."""
+    calls: list[RewardLeg] = []
 
     class RecordingClient(FakeClient):
-        def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar:
-            calls.append(query)
-            return super().search_reward_calendar(query)
+        def search_reward_legs(self, legs: Sequence[RewardLeg]) -> list[RewardCalendar | Exception]:
+            calls.extend(legs)
+            return results if results is not None else [_fake_calendar(leg) for leg in legs]
 
     monkeypatch.setattr("avios.cli.AviosClient", RecordingClient)
+    return calls
+
+
+def test_flights_return_reverses_route_in_one_session(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _recording_client(monkeypatch)
+
     result = runner.invoke(
         app,
-        [
-            "flights",
-            "LON",
-            "ABZ",
-            "--date",
-            "2099-11-05",
-            "--return-date",
-            "2099-12-05",
-        ],
+        ["flights", "LON", "ABZ", "--date", "2099-11-05", "--return-date", "2099-12-05"],
     )
+
     assert result.exit_code == 0
     assert "Outbound" in result.stdout and "Inbound" in result.stdout
-    assert [(call.origin, call.destination) for call in calls] == [
+    # Both legs in a single call, so only one browser session is warmed.
+    assert [(leg.query.origin, leg.query.destination) for leg in calls] == [
         ("LON", "ABZ"),
         ("ABZ", "LON"),
     ]
+    assert [leg.departure_date for leg in calls] == ["2099-11-05", "2099-12-05"]
+
+
+def test_flights_calendar_mode_does_not_request_pricing(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only exact-date searches ask for prices — one fewer request per leg."""
+    calls = _recording_client(monkeypatch)
+
+    result = runner.invoke(app, ["flights", "LON", "ABZ", "--month", "2099-11"])
+
+    assert result.exit_code == 0
+    assert [leg.departure_date for leg in calls] == [None]
+
+
+def test_flights_shows_avios_prices_for_an_exact_date(
+    account_store: AccountStore, fake_client: None
+) -> None:
+    result = runner.invoke(app, ["flights", "LON", "ABZ", "--date", "2099-11-05"])
+    assert result.exit_code == 0
+    assert "9 · 50,000" in result.stdout
+    assert "seats · Avios" in result.stdout
+
+
+def test_flights_reports_a_failed_leg_and_keeps_the_other(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outbound = _fake_calendar(RewardLeg(_query("LON", "ABZ", "2099-11")))
+    _recording_client(monkeypatch, [outbound, RuntimeError("Akamai said no")])
+
+    result = runner.invoke(
+        app,
+        ["flights", "LON", "ABZ", "--date", "2099-11-05", "--return-date", "2099-12-05"],
+    )
+
+    assert result.exit_code == 0
+    assert "Inbound search failed" in result.stdout
+    assert "Akamai said no" in result.stdout
+    assert "BA1300" in result.stdout
+
+
+def test_flights_exits_nonzero_when_every_leg_fails(
+    account_store: AccountStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _recording_client(monkeypatch, [RuntimeError("blocked")])
+
+    result = runner.invoke(app, ["flights", "LON", "ABZ", "--month", "2099-11"])
+
+    assert result.exit_code == 1
+    assert "Outbound search failed" in result.stdout
 
 
 def test_flights_json_keeps_full_typed_result(
@@ -393,9 +481,12 @@ def test_flights_json_keeps_full_typed_result(
     assert data["journeyType"] == "one-way"
     assert data["mode"] == "date"
     assert data["inbound"] is None
-    flight = data["outbound"]["days"]["2099-11-05"]["flights"][0]
+    day = data["outbound"]["days"]["2099-11-05"]
+    flight = day["journeys"][0]["flights"][0]
     assert flight["marketing"]["flightNumber"] == "1300"
     assert len(flight["availability"]) == 2
+    assert flight["availability"][0]["cabin"] == "J"
+    assert flight["availability"][0]["price"]["adult"] == 50000
 
 
 @pytest.mark.parametrize(

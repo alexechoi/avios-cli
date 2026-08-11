@@ -95,10 +95,12 @@ Each programme session is stored at `~/.config/avios/accounts/<programme>.json`
 `avios logout <programme>` for one account or `avios logout` for all accounts.
 For BA, browser-assisted login also opens the separate reward-flight application.
 British Airways may show a second login prompt; keep the browser open until the
-CLI confirms success. Reward searches drive the site's own form in a background
-Chrome window because the flight-search route rejects plain HTTP and automated
-headless requests, so the `login` extra remains required when running
-`avios flights` or the Reward Flights TUI tab.
+CLI confirms success. Reward searches run inside a background Chrome window: the
+flight finder is behind Akamai Bot Manager, which rejects plain HTTP clients and
+**blocks by IP address** — a handful of ordinary page loads from a shared office
+network is enough to earn a site-wide 403. Every leg of a search is therefore
+batched through a single browser navigation, paced, and served by in-page
+`fetch()` calls. If you do get blocked, wait a few minutes and switch network.
 
 ## Usage
 
@@ -115,9 +117,9 @@ avios overview                 # dashboard summary
 avios whoami                   # name, tier, membership, email
 avios raw /shell/api/users/current/accounts   # hit any endpoint directly
 
-# Direct British Airways reward-seat availability:
-avios flights LON ABZ --date 2026-11-05
-avios flights LON ABZ --date 2026-11-05 --return-date 2026-11-12
+# Direct British Airways reward-seat availability (--date also prices in Avios):
+avios flights LON HKG --date 2027-01-05
+avios flights LON HKG --date 2027-01-05 --return-date 2027-01-12
 avios flights LON ABZ --month 2026-11 --cabin economy --cabin business
 avios flights LON ABZ --month 2026-11 --return-month 2026-12 --json
 ```
@@ -141,10 +143,13 @@ A tabbed full-screen application:
 Press `r` to refresh the dashboard and `q` to quit. Reward searches run only when
 you press Search or Enter.
 
-Reward search is an unofficial, availability-only view. It currently supports
-direct BA flights, three-letter airport/city codes, and seat counts by cabin. It
-does not price, book, or show taxes/fees or connecting flights. Return journeys
-are two independent one-way searches.
+Reward search is an unofficial view of BA's own flight finder. It supports direct
+BA flights, three-letter airport/city codes, and seat counts by cabin. Searching
+an exact `--date` also fetches the Avios price per cabin for your party; calendar
+(month) searches show seats only, which keeps them to one request per leg. Seats
+that need a BA companion voucher are marked `†`. It does not book, and it does
+not show taxes/fees or connecting flights. Return journeys are two reverse-route
+one-way searches sharing one browser session.
 
 ## Roadmap
 
@@ -156,6 +161,7 @@ are two independent one-way searches.
 - [x] Textual TUI dashboard
 - [x] Multiple accounts (BA, Iberia, Aer Lingus, Finnair) with combined views
 - [x] British Airways reward-flight **availability** search (CLI + TUI)
+- [x] Avios pricing per cabin for an exact date
 
 ## Development
 

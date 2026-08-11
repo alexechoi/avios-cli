@@ -7,11 +7,18 @@ CLI/TUI can render a single, friendly "please log in again" message.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from avios import endpoints
 from avios.models import Balance, Overview, Profile, Transaction
-from avios.rewards import RewardCalendar, RewardSearchQuery, search_reward_calendar
+from avios.rewards import (
+    RewardCalendar,
+    RewardLeg,
+    RewardSearchQuery,
+    search_reward_calendar,
+    search_reward_legs,
+)
 from avios.session import Session
 
 
@@ -63,9 +70,25 @@ class AviosClient:
         payload = self.session.get_json(endpoints.TRANSACTIONS_PENDING)
         return [Transaction.model_validate(item) for item in _extract_list(payload)]
 
-    def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar:
-        """Search one month of direct BA reward-flight availability."""
-        return search_reward_calendar(self.session, query)
+    def search_reward_calendar(
+        self, query: RewardSearchQuery, *, departure_date: str | None = None
+    ) -> RewardCalendar:
+        """Search one month of direct BA reward-flight availability.
+
+        Passing ``departure_date`` also re-reads and prices that date, mirroring
+        what the website does when you click a day in the calendar.
+        """
+        return search_reward_calendar(self.session, query, departure_date=departure_date)
+
+    def search_reward_legs(self, legs: Sequence[RewardLeg]) -> list[RewardCalendar | Exception]:
+        """Search several legs over one browser session.
+
+        Prefer this over repeated :meth:`search_reward_calendar` calls: each call
+        warms its own Chrome profile, and repeated page loads are exactly what
+        gets an IP blocked by BA's bot protection. Failures are returned per leg
+        so one bad leg does not lose the others.
+        """
+        return search_reward_legs(self.session, legs)
 
     def raw(self, path: str) -> Any:
         """Fetch an arbitrary endpoint (escape hatch), returning parsed JSON."""

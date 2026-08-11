@@ -140,6 +140,25 @@ class Session:
             transport=self._transport,
         )
 
+    def exact_client(self, headers: Mapping[str, str]) -> httpx.Client:
+        """Return a client that sends ``headers`` verbatim, plus the session cookie.
+
+        :meth:`client` layers on the manage-avios defaults (``x-avios-opco``, a
+        dashboard ``referer``). The BA reward finder is a *browser* route, where
+        anything a browser wouldn't send is a fingerprint, so callers replaying a
+        captured request build their header set from scratch here instead.
+        """
+        cookie = self.cookie_header()
+        if not cookie:
+            raise NotAuthenticated("No saved session. Run `avios login` first.")
+        return httpx.Client(
+            base_url=self.base_url,
+            headers={**dict(headers), "cookie": cookie},
+            timeout=self.settings.request_timeout,
+            follow_redirects=False,
+            transport=self._transport,
+        )
+
     def request(
         self,
         method: str,

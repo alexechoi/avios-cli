@@ -18,6 +18,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure a raw AVIOS_COOKIE from the real environment never leaks into tests."""
     monkeypatch.delenv("AVIOS_COOKIE", raising=False)
+    # Rich shrinks table cells to the terminal width; the reward-flight tables have
+    # up to ten columns, so give them room or assertions match truncated text.
+    monkeypatch.setenv("COLUMNS", "200")
 
 
 @pytest.fixture
