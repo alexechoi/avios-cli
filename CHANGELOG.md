@@ -6,6 +6,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-11
+
+### Added
+- **MCP server (`avios-mcp`).** Exposes your Avios accounts and British Airways
+  reward availability to Claude and any other MCP client over stdio. Install with
+  `uv tool install 'avios-cli[mcp]'`; sessions come from `avios login`, so the
+  server never performs a login itself. Closes #45.
+
+  Tools: `list_accounts`, `get_balance`, `get_transactions`,
+  `get_pending_transactions`, `whoami`, `search_reward_flights`.
+
+  Design constraints worth stating, because they are what make it safe to point an
+  agent at:
+
+  - **Read-only.** Nothing books, spends, or mutates a session.
+  - **No credentials in output.** Every tool returns an explicit response model
+    rather than a raw API payload, so cookies, API keys and the `whoami` id token
+    never leave the process.
+  - **Reward search is batched and rate-limited.** BA blocks by IP address, so an
+    agent fanning out over routes could lock you out of the site. A whole return
+    trip goes through one batched, single-browser-session search; the server
+    enforces a cooldown between searches; and a block is reported as terminal and
+    explicitly not retryable.
+  - **MCP is an optional extra**, so a plain CLI install does not pull in the SDK's
+    web stack.
+
 ## [0.5.0] - 2026-08-11
 
 ### Fixed

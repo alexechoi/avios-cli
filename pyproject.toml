@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "avios-cli"
-description = "A CLI and TUI for Avios balances, transactions, and BA reward-flight availability."
+description = "A CLI, TUI and MCP server for Avios balances, transactions, and BA reward-flight availability."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "Alex Choi" }]
-keywords = ["avios", "british-airways", "cli", "tui", "loyalty", "terminal"]
+keywords = ["avios", "british-airways", "cli", "tui", "loyalty", "terminal", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -45,6 +45,10 @@ dependencies = [
 # base package, so `avios-cli[login]` resolves to the same thing as `avios-cli`.
 login = []
 
+# MCP server (`avios-mcp`). Optional so a plain CLI install stays small; the SDK
+# pulls in a web stack the terminal app has no use for.
+mcp = ["mcp>=2.0,<3"]
+
 # Dev tooling lives in a PEP 735 dependency-group (not an extra) so that `uv sync`
 # and `uv run` install it by default — an extra would be pruned by `uv run`.
 [dependency-groups]
@@ -56,12 +60,18 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "types-PyYAML",
+    # In the dev group, not just the `mcp` extra, so CI type-checks and tests the
+    # MCP server rather than skipping it.
+    "mcp>=2.0,<3",
 ]
 
 [project.scripts]
 avios = "avios.cli:app"
 # Alias so `uvx avios-cli` (matching the package name) works too.
 avios-cli = "avios.cli:app"
+# MCP server over stdio; needs the `mcp` extra. The wrapper module reports a
+# missing extra as one readable line rather than an import traceback.
+avios-mcp = "avios.mcp_entry:main"
 
 [project.urls]
 Homepage = "https://github.com/alexechoi/avios-cli"
@@ -99,5 +109,5 @@ mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["browser_cookie3.*", "playwright.*"]
+module = ["browser_cookie3.*", "playwright.*", "mcp.*"]
 ignore_missing_imports = true

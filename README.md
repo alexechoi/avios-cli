@@ -4,10 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
-A **CLI and TUI for your Avios programmes** — check balances, browse transactions,
-and search British Airways reward-flight availability without leaving the terminal.
-British Airways, Iberia, and Aer Lingus use avios.com; Finnair Plus uses Finnair's
-own OAuth and loyalty API.
+A **CLI, TUI and MCP server for your Avios programmes** — check balances, browse
+transactions, and search British Airways reward-flight availability without leaving
+the terminal, or hand the same data to an AI agent. British Airways, Iberia, and
+Aer Lingus use avios.com; Finnair Plus uses Finnair's own OAuth and loyalty API.
 
 > ⚠️ **Unofficial.** This project is not affiliated with, authorised by, or endorsed by
 > Avios, British Airways, Finnair or IAG Loyalty. It drives the same private endpoints
@@ -143,6 +143,41 @@ A tabbed full-screen application:
 Press `r` to refresh the dashboard and `q` to quit. Reward searches run only when
 you press Search or Enter.
 
+## MCP server
+
+Expose your accounts to Claude and other MCP clients, read-only:
+
+```bash
+uv tool install 'avios-cli[mcp]'
+avios login ba          # sessions come from the CLI; the server never logs in
+```
+
+```jsonc
+// Claude Desktop: claude_desktop_config.json
+{
+  "mcpServers": {
+    "avios": { "command": "avios-mcp" }
+  }
+}
+```
+
+Or, for Claude Code:
+
+```bash
+claude mcp add avios -- uvx --from 'avios-cli[mcp]' avios-mcp
+```
+
+Tools: `list_accounts`, `get_balance`, `get_transactions`,
+`get_pending_transactions`, `whoami`, `search_reward_flights`.
+
+Every tool is read-only — nothing books, spends, or changes a session — and no
+cookie or token is ever returned. `search_reward_flights` searches a whole return
+trip in one call and is rate-limited server-side, because it drives a real browser
+and British Airways blocks by IP address; an agent looping over routes could get
+you locked out of the site.
+
+## Notes on reward search
+
 Reward search is an unofficial view of BA's own flight finder. It supports direct
 BA flights, three-letter airport/city codes, and seat counts by cabin. Searching
 an exact `--date` also fetches the Avios price per cabin for your party; calendar
@@ -162,6 +197,7 @@ one-way searches sharing one browser session.
 - [x] Multiple accounts (BA, Iberia, Aer Lingus, Finnair) with combined views
 - [x] British Airways reward-flight **availability** search (CLI + TUI)
 - [x] Avios pricing per cabin for an exact date
+- [x] MCP server (`avios-mcp`) for AI agents
 
 ## Development
 
