@@ -280,6 +280,19 @@ async def test_whoami_returns_claims_but_never_the_id_token(
     assert "SECRET.JWT.VALUE" not in str(result)
 
 
+async def test_whoami_on_a_non_avios_programme_points_at_a_usable_account(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Finnair has its own loyalty API and no equivalent profile endpoint."""
+    monkeypatch.setenv("AVIOS_CONFIG_DIR", str(tmp_path / "finnair-first"))
+    AccountStore().save(
+        Account.from_programme(get_programme("finnair"), cookies=[{"name": "s", "value": "1"}])
+    )
+
+    with pytest.raises(ToolError, match="list_accounts"):
+        await call("whoami", account="finnair")
+
+
 # -- reward search -----------------------------------------------------------
 async def test_reward_search_returns_seats_and_prices(
     store: AccountStore, fake_client: type[FakeAviosClient]

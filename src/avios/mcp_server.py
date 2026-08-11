@@ -471,7 +471,11 @@ def whoami(
     resolved = _one_account(account)
     client = resolved.client()
     if not isinstance(client, AviosClient):
-        raise ToolError(f"{resolved.name} does not expose a profile endpoint.")
+        # Finnair uses its own loyalty API and has no equivalent profile endpoint.
+        raise ToolError(
+            f"{resolved.name} does not expose a profile endpoint. Pass `account` with "
+            "an avios.com programme instead (see list_accounts)."
+        )
     try:
         claims = client.get_profile().as_dict().get("tokenContent", {})
     except (NotAuthenticated, SessionExpired) as exc:
