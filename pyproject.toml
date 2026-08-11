@@ -36,7 +36,7 @@ dependencies = [
     # Browser-assisted login ships in the base package so `uvx avios-cli login`
     # works with no extra flags. The Chromium *binary* is still fetched on demand
     # (only if you have no system Chrome) — see avios.auth._install_chromium.
-    "playwright>=1.44",
+    "playwright>=1.62.0",
     "browser-cookie3>=0.19",
 ]
 
