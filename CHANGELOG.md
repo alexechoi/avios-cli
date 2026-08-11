@@ -6,6 +6,55 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-11
+
+### Fixed
+- **BA reward-flight search returned nothing after British Airways rebuilt the
+  flight finder.** The new Next.js app moved each day's flights one level deeper
+  (`departureJourneys.<date>.journeys[].flights[]` instead of
+  `departureJourneys.<date>.flights[]`), so every day parsed as empty. Availability
+  parsing now follows the new shape, and the old flat shape still parses if BA
+  rolls back.
+- **Business-class seats were always reported as zero.** BA's availability rows use
+  cabin code `J`; the client only looked for `C`. Both are now recognised, matching
+  the site's own `cabinClassCodeMap`.
+- The request contract was re-derived from a live capture and is now reproduced
+  byte for byte — query parameters, both `next-router-state-tree` variants, `rsc`,
+  `next-url`, `accept`, and the full browser header set. A user-agent that
+  disagreed with the `sec-ch-ua` client hints (Chrome 126 vs 148) is fixed, since
+  the mismatch is itself a bot signal.
+
+### Added
+- **Avios prices.** Searching an exact `--date` now calls the finder's
+  `fetchPricingAction` server action and shows the Avios cost per cabin for your
+  party, in both the CLI table and the TUI. Calendar (month) searches stay
+  seats-only so they remain one request per leg.
+- Exact-date searches also re-read that date through
+  `getFlightResultsForSingleJourneyAction`, exactly as the website does when you
+  click a day, so seat counts are fresh rather than served from the month cache.
+- Seats that only sell against a BA companion voucher (Business `rbd: I`) are
+  marked `†` instead of being counted as general availability.
+- `AviosClient.search_reward_legs()` searches every leg of a trip over **one**
+  browser session, and reports failures per leg so one bad leg does not lose the
+  other. The CLI and TUI both use it.
+- Akamai denials are now distinguished from an expired session: a bot-manager 403
+  or a 429 raises `RewardSearchBlockedError` telling you to wait and switch
+  network, rather than sending you to log in again.
+
+### Changed
+- **Reward searches make far fewer requests.** Previously each leg launched its own
+  Chrome, navigated to the finder, and drove the search form. A search now warms
+  one browser navigation and issues in-page `fetch()` calls for everything after
+  it — a return trip costs one navigation and two fetches — with pacing between
+  requests. British Airways blocks by IP address, and page loads were what
+  triggered it.
+- One availability request now returns the whole 13-month booking window, so an
+  out-of-range month reports the window BA actually offers.
+- Dates beyond BA's rolling booking horizon are recognised (`availabilityLevel: 3`)
+  and no longer render as "no reward seats".
+- `flights --json` reports days as `journeys[].flights[]`, following the upstream
+  shape, and includes the `price` attached to each cabin.
+
 ## [0.4.3] - 2026-07-27
 
 ### Changed

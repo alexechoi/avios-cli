@@ -33,6 +33,8 @@ from avios.rewards import (
     PassengerCounts,
     RewardCalendar,
     RewardDay,
+    RewardFlight,
+    RewardLeg,
     RewardSearchError,
     RewardSearchQuery,
 )
@@ -443,15 +445,23 @@ def _reward_query(
         raise typer.BadParameter(str(message)) from exc
 
 
-def _duration_text(minutes: int) -> str:
-    hours, remainder = divmod(minutes, 60)
-    return f"{hours}h {remainder:02d}m" if hours else f"{remainder}m"
+def _seat_cell(flight: RewardFlight, cabin: Cabin, passengers: PassengerCounts) -> str:
+    """One cabin cell: seats, the Avios price when known, and a voucher marker."""
+    seats = flight.seats_for(cabin)
+    if not seats:
+        return "[dim]—[/]"
+    marker = "[yellow]†[/]" if flight.voucher_only_for(cabin) else ""
+    price = flight.price_for(cabin)
+    if price is None:
+        return f"[green]{seats}[/]{marker}"
+    return f"[green]{seats}[/]{marker} · {price.total_for(passengers):,}"
 
 
 def _render_reward_day(
     calendar: RewardCalendar,
     departure_date: str,
     cabins: tuple[Cabin, ...],
+    passengers: PassengerCounts,
     *,
     title: str,
     show_unavailable: bool,
@@ -459,7 +469,12 @@ def _render_reward_day(
     day = calendar.day(departure_date)
     flights = day.flights if show_unavailable else day.available_flights
     if not flights:
-        console.print(f"[dim]No reward seats found for {title.lower()} on {departure_date}.[/]")
+        reason = (
+            "outside the booking window"
+            if day.out_of_range
+            else f"no reward seats found for {title.lower()}"
+        )
+        console.print(f"[dim]{departure_date}: {reason}.[/]")
         return
 
     table = Table(title=f"{title} · {calendar.origin} → {calendar.destination} · {departure_date}")
@@ -469,20 +484,29 @@ def _render_reward_day(
         table.add_column(cabin.value, justify="right")
     table.add_column("Peak")
 
+    voucher_only = False
     for flight in flights:
         row = [
             f"{flight.marketing.carrier}{flight.marketing.flight_number}",
             f"{flight.departure_airport}→{flight.arrival_airport}",
             flight.departure_time[11:16],
             flight.arrival_time[11:16],
-            _duration_text(flight.duration),
+            flight.duration_text(),
         ]
         for cabin in cabins:
-            seats = flight.seats_for(cabin)
-            row.append(f"[green]{seats}[/]" if seats else "[dim]—[/]")
+            row.append(_seat_cell(flight, cabin, passengers))
+            voucher_only = voucher_only or flight.voucher_only_for(cabin)
         row.append("yes" if flight.peak else "no")
         table.add_row(*row)
     console.print(table)
+    if calendar.priced:
+        travellers = sum(
+            (passengers.adults, passengers.young_adults, passengers.children, passengers.infants)
+        )
+        suffix = "traveller" if travellers == 1 else "travellers"
+        console.print(f"[dim]Cabin cells show seats · Avios for {travellers} {suffix}.[/]")
+    if voucher_only:
+        console.print("[dim][yellow]†[/] companion-voucher availability only.[/]")
 
 
 def _calendar_cell(calendar_day: RewardDay, cabin: Cabin) -> str:
@@ -507,6 +531,7 @@ def _render_reward_calendar(
         day
         for key, day in sorted(calendar.days.items())
         if key >= Date.today().isoformat()
+        and not day.out_of_range
         and (show_unavailable or any(flight.has_availability for flight in day.flights))
     ]
     if not days:
@@ -520,6 +545,7 @@ def _render_reward_calendar(
     for day in days:
         table.add_row(day.date, *[_calendar_cell(day, cabin) for cabin in cabins])
     console.print(table)
+    console.print("[dim]Use --date to see Avios prices for one day.[/]")
 
 
 def _calendar_json(calendar: RewardCalendar, departure_date: str | None = None) -> dict[str, Any]:
@@ -527,6 +553,14 @@ def _calendar_json(calendar: RewardCalendar, departure_date: str | None = None) 
     if departure_date is not None:
         data["days"] = {departure_date: calendar.day(departure_date).as_dict()}
     return data
+
+
+def _leg_result(result: RewardCalendar | Exception, label: str) -> RewardCalendar | None:
+    """Report a failed leg without abandoning the ones that worked."""
+    if isinstance(result, RewardCalendar):
+        return result
+    console.print(f"[red]{label} search failed:[/] {escape(str(result))}")
+    return None
 
 
 @app.command()
@@ -603,22 +637,31 @@ def flights(
         else None
     )
 
+    # Both legs go through one warmed browser session: repeated page loads are what
+    # gets an IP blocked by British Airways' bot protection.
+    legs = [RewardLeg(outbound_query, exact_outbound.isoformat() if exact_outbound else None)]
+    if inbound_query is not None:
+        legs.append(RewardLeg(inbound_query, exact_return.isoformat() if exact_return else None))
+
     with _handle_errors():
-        client = _client("ba")
-        outbound = client.search_reward_calendar(outbound_query)
-        inbound = (
-            client.search_reward_calendar(inbound_query) if inbound_query is not None else None
-        )
+        results = _client("ba").search_reward_legs(legs)
+
+    outbound = _leg_result(results[0], "Outbound")
+    inbound = _leg_result(results[1], "Inbound") if len(results) > 1 else None
+    if outbound is None and inbound is None:
+        raise typer.Exit(1)
 
     if json_out:
         _print_json(
             {
-                "journeyType": "return" if inbound is not None else "one-way",
+                "journeyType": "return" if len(legs) > 1 else "one-way",
                 "mode": "date" if exact_outbound is not None else "calendar",
                 "passengers": passengers.as_dict(),
                 "cabins": [cabin.value for cabin in cabins],
-                "outbound": _calendar_json(
-                    outbound, exact_outbound.isoformat() if exact_outbound else None
+                "outbound": (
+                    _calendar_json(outbound, exact_outbound.isoformat() if exact_outbound else None)
+                    if outbound is not None
+                    else None
                 ),
                 "inbound": (
                     _calendar_json(inbound, exact_return.isoformat() if exact_return else None)
@@ -630,24 +673,30 @@ def flights(
         return
 
     if exact_outbound is not None:
-        _render_reward_day(
-            outbound,
-            exact_outbound.isoformat(),
-            cabins,
-            title="Outbound",
-            show_unavailable=show_unavailable,
-        )
+        if outbound is not None:
+            _render_reward_day(
+                outbound,
+                exact_outbound.isoformat(),
+                cabins,
+                passengers,
+                title="Outbound",
+                show_unavailable=show_unavailable,
+            )
         if inbound is not None and exact_return is not None:
             _render_reward_day(
                 inbound,
                 exact_return.isoformat(),
                 cabins,
+                passengers,
                 title="Inbound",
                 show_unavailable=show_unavailable,
             )
         return
 
-    _render_reward_calendar(outbound, cabins, title="Outbound", show_unavailable=show_unavailable)
+    if outbound is not None:
+        _render_reward_calendar(
+            outbound, cabins, title="Outbound", show_unavailable=show_unavailable
+        )
     if inbound is not None:
         _render_reward_calendar(inbound, cabins, title="Inbound", show_unavailable=show_unavailable)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date as Date
 from typing import Protocol
@@ -21,13 +22,20 @@ from textual.widgets import (
     Static,
 )
 
-from avios.rewards import Cabin, PassengerCounts, RewardCalendar, RewardSearchQuery
+from avios.rewards import (
+    Cabin,
+    PassengerCounts,
+    RewardCalendar,
+    RewardFlight,
+    RewardLeg,
+    RewardSearchQuery,
+)
 
 
 class RewardSearchClient(Protocol):
     """Small client seam used by the TUI and its offline tests."""
 
-    def search_reward_calendar(self, query: RewardSearchQuery) -> RewardCalendar: ...
+    def search_reward_legs(self, legs: Sequence[RewardLeg]) -> list[RewardCalendar | Exception]: ...
 
 
 @dataclass(frozen=True)
@@ -39,6 +47,15 @@ class FlightSearchSpec:
     inbound_value: str | None
     cabins: tuple[Cabin, ...]
     show_unavailable: bool
+    passengers: PassengerCounts
+
+    def legs(self) -> list[RewardLeg]:
+        """Legs to search, dated only in exact-date mode so prices come back."""
+        exact = self.mode == "date"
+        legs = [RewardLeg(self.outbound_query, self.outbound_value if exact else None)]
+        if self.inbound_query is not None:
+            legs.append(RewardLeg(self.inbound_query, self.inbound_value if exact else None))
+        return legs
 
 
 class RewardFlightsPane(Vertical):
@@ -229,6 +246,7 @@ class RewardFlightsPane(Vertical):
             inbound_value=inbound_value,
             cabins=cabins,
             show_unavailable=self.query_one("#flight-show-unavailable", Checkbox).value,
+            passengers=passengers,
         )
 
     @staticmethod
@@ -247,7 +265,10 @@ class RewardFlightsPane(Vertical):
         button.disabled = True
         self._set_status("Searching…")
         assert self._client is not None
-        outbound = await self._fetch(spec.outbound_query)
+        # One call, one browser session: BA blocks IPs that reload the finder.
+        results = await self._fetch(spec.legs())
+
+        outbound = results[0]
         self._show_leg(
             "Outbound",
             self.query_one("#outbound-heading", Label),
@@ -258,10 +279,11 @@ class RewardFlightsPane(Vertical):
         )
 
         inbound: RewardCalendar | Exception | None = None
-        if spec.inbound_query is not None and spec.inbound_value is not None:
-            self.query_one("#inbound-heading").display = True
-            self.query_one("#inbound-flights").display = True
-            inbound = await self._fetch(spec.inbound_query)
+        show_inbound = spec.inbound_query is not None and spec.inbound_value is not None
+        self.query_one("#inbound-heading").display = show_inbound
+        self.query_one("#inbound-flights").display = show_inbound
+        if show_inbound and spec.inbound_value is not None:
+            inbound = results[1] if len(results) > 1 else RuntimeError("No inbound result")
             self._show_leg(
                 "Inbound",
                 self.query_one("#inbound-heading", Label),
@@ -270,9 +292,6 @@ class RewardFlightsPane(Vertical):
                 spec,
                 spec.inbound_value,
             )
-        else:
-            self.query_one("#inbound-heading").display = False
-            self.query_one("#inbound-flights").display = False
 
         failures = sum(isinstance(result, Exception) for result in (outbound, inbound))
         self._set_status(
@@ -283,12 +302,12 @@ class RewardFlightsPane(Vertical):
         )
         button.disabled = False
 
-    async def _fetch(self, query: RewardSearchQuery) -> RewardCalendar | Exception:
+    async def _fetch(self, legs: Sequence[RewardLeg]) -> list[RewardCalendar | Exception]:
         assert self._client is not None
         try:
-            return await asyncio.to_thread(self._client.search_reward_calendar, query)
+            return await asyncio.to_thread(self._client.search_reward_legs, legs)
         except Exception as exc:
-            return exc
+            return [exc for _ in legs]
 
     def _show_leg(
         self,
@@ -312,9 +331,14 @@ class RewardFlightsPane(Vertical):
             self._populate_calendar(table, result, spec)
 
     @staticmethod
-    def _duration(minutes: int) -> str:
-        hours, remainder = divmod(minutes, 60)
-        return f"{hours}h {remainder:02d}m" if hours else f"{remainder}m"
+    def _seat_cell(flight: RewardFlight, cabin: Cabin, passengers: PassengerCounts) -> str:
+        """Seats for a cabin, with its Avios price and companion-voucher marker."""
+        seats = flight.seats_for(cabin)
+        if not seats:
+            return "—"
+        text = f"{seats}†" if flight.voucher_only_for(cabin) else str(seats)
+        price = flight.price_for(cabin)
+        return f"{text} · {price.total_for(passengers):,}" if price else text
 
     def _populate_date(
         self,
@@ -327,7 +351,9 @@ class RewardFlightsPane(Vertical):
         flights = day.flights if spec.show_unavailable else day.available_flights
         if not flights:
             table.add_column("Info")
-            table.add_row("No reward seats found")
+            table.add_row(
+                "Outside the booking window" if day.out_of_range else "No reward seats found"
+            )
             return
         table.add_columns("Flight", "Route", "Depart", "Arrive", "Duration")
         for cabin in spec.cabins:
@@ -339,11 +365,8 @@ class RewardFlightsPane(Vertical):
                 f"{flight.departure_airport}→{flight.arrival_airport}",
                 flight.departure_time[11:16],
                 flight.arrival_time[11:16],
-                self._duration(flight.duration),
-                *[
-                    str(flight.seats_for(cabin)) if flight.seats_for(cabin) else "—"
-                    for cabin in spec.cabins
-                ],
+                flight.duration_text(),
+                *[self._seat_cell(flight, cabin, spec.passengers) for cabin in spec.cabins],
                 "yes" if flight.peak else "no",
             ]
             table.add_row(*row)
@@ -355,6 +378,7 @@ class RewardFlightsPane(Vertical):
             day
             for key, day in sorted(calendar.days.items())
             if key >= Date.today().isoformat()
+            and not day.out_of_range
             and (spec.show_unavailable or any(flight.has_availability for flight in day.flights))
         ]
         if not days:
