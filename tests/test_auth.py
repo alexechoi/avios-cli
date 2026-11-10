@@ -124,13 +124,14 @@ class _FakeRequest:
 
 
 class _FakePage:
-    def __init__(self) -> None:
+    def __init__(self, redirect_to: str | None = None) -> None:
         self.visited: list[str] = []
         self.url = ""
+        self._redirect_to = redirect_to
 
     def goto(self, url: str, **kwargs: object) -> None:
         self.visited.append(url)
-        self.url = url
+        self.url = self._redirect_to or url
 
     def wait_for_timeout(self, ms: int) -> None:
         pass
@@ -140,11 +141,16 @@ class _FakePage:
 
 
 class _FakeContext:
-    def __init__(self, ok_after: int, cookies: list[dict[str, str]]) -> None:
+    def __init__(
+        self,
+        ok_after: int,
+        cookies: list[dict[str, str]],
+        redirect_to: str | None = None,
+    ) -> None:
         self.request = _FakeRequest(ok_after)
         self._cookies = cookies
         self.closed = False
-        self.page = _FakePage()
+        self.page = _FakePage(redirect_to)
 
     def new_page(self) -> _FakePage:
         return self.page
@@ -208,10 +214,23 @@ def test_login_captures_only_after_authenticated(settings: Settings) -> None:
     assert ctx.page.visited[-1].endswith("/en-GB/spend-avios/search-reward-flights")
 
 
+def test_ba_login_accepts_account_session_on_reward_page(settings: Settings) -> None:
+    cookies = [{"name": "ba_session_id", "value": "x", "domain": "www.avios.com"}]
+    ctx = _FakeContext(ok_after=1, cookies=cookies)
+
+    captured = login_via_browser(
+        BA, settings=settings, timeout_ms=4_000, playwright_factory=_FakeFactory(ctx)
+    )
+
+    assert captured == cookies
+    assert ctx.page.visited[-1].endswith("/en-GB/spend-avios/search-reward-flights")
+
+
 def test_ba_login_waits_for_separate_reward_session(settings: Settings) -> None:
     ctx = _FakeContext(
         ok_after=1,
         cookies=[{"name": "ba_session_id", "value": "x", "domain": "www.avios.com"}],
+        redirect_to="https://www.avios.com/reward-login",
     )
 
     with pytest.raises(LoginError, match="reward-flight login"):

@@ -33,6 +33,7 @@ from avios.session import cookie_header_from
 LOGIN_TIMEOUT_MS = 300_000  # 5 minutes to complete password + captcha + MFA
 LOGIN_POLL_MS = 2_000  # how often to check whether the session is authenticated
 SUPPORTED_BROWSERS = ("chrome", "firefox", "edge", "brave", "safari", "chromium")
+BA_ACCOUNT_SESSION_COOKIE = "ba_session_id"
 BA_REWARD_SEARCH_PATH = "/en-GB/spend-avios/search-reward-flights"
 
 # Chromium-family user-data roots per browser (relative to home), used to discover
@@ -140,14 +141,29 @@ def login_via_browser(
     return _only_avios(cookies)
 
 
-def _has_ba_reward_session(ctx: Any) -> bool:
-    """Whether BA's separate reward-search application session is present."""
-    names = {
+def _avios_cookie_names(ctx: Any) -> set[str]:
+    return {
         str(cookie.get("name", ""))
         for cookie in ctx.cookies()
         if "avios.com" in str(cookie.get("domain", ""))
     }
-    return "__session" in names or any(name.startswith("appSession") for name in names)
+
+
+def _has_ba_reward_session(ctx: Any) -> bool:
+    """Whether a session usable by BA's reward-search application is present.
+
+    BA historically issued a separate ``__session``/``appSession*`` cookie for the
+    reward app. It now also serves the reward app from the main ``ba_session_id``
+    session without setting those cookies, so that cookie counts too. The caller
+    still requires the browser to be sitting on the reward page, so a redirect to a
+    separate login keeps the wait going.
+    """
+    names = _avios_cookie_names(ctx)
+    return (
+        "__session" in names
+        or BA_ACCOUNT_SESSION_COOKIE in names
+        or any(name.startswith("appSession") for name in names)
+    )
 
 
 def _wait_for_ba_reward_auth(ctx: Any, page: Any, base_url: str, timeout_ms: int) -> bool:
