@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `avios login ba` no longer reports "reward-flight login did not succeed" when BA's
+  reward app runs on the main `ba_session_id` session instead of issuing a separate
+  `__session`/`appSession*` cookie. The login now completes once the reward page is
+  loaded with a valid session.
+
 ## [0.6.0] - 2026-08-11
 
 ### Added
