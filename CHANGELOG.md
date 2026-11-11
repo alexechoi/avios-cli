@@ -6,6 +6,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-11
+
 ### Fixed
 - `avios login ba` no longer reports "reward-flight login did not succeed" when BA's
   reward app runs on the main `ba_session_id` session instead of issuing a separate
